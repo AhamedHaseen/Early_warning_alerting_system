@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { BookOpen, Users, Activity, ShieldCheck, GraduationCap, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import Swal from 'sweetalert2';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -44,6 +45,18 @@ const Login = () => {
     try {
       const { error: authError } = await login(email, password);
       if (authError) throw authError;
+
+      const Toast = Swal.mixin({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 3000,
+        timerProgressBar: true,
+      });
+      Toast.fire({
+        icon: 'success',
+        title: 'Login successful'
+      });
     } catch (err) {
       setError(err.message || 'Failed to sign in');
     } finally {
