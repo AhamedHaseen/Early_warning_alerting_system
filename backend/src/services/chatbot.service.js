@@ -34,7 +34,9 @@ const queryDatabaseTool = new DynamicStructuredTool({
       let query = supabase.from(table).select('*', { count: 'exact' });
 
       if (columnFilter && valueFilter) {
-        query = query.eq(columnFilter, valueFilter);
+        // Clean up columnFilter in case the AI hallucinates quotes or table prefixes (e.g. "batches.name" -> "name")
+        const cleanColumn = columnFilter.replace(/["']/g, '').split('.').pop();
+        query = query.ilike(cleanColumn, `%${valueFilter}%`);
       }
 
       const { data, error, count } = await query;
@@ -168,6 +170,11 @@ Your job is to help admins query the database, check system availability (lectur
 
 You have access to tools that query the database, check availability, and schedule sessions.
 When checking availability or scheduling, if you don't know the exact UUIDs for lecturers, halls, or courses, use the 'queryDatabase' tool first to find them!
+
+Database Schema Hints:
+- The 'batches' table uses the column 'name' (NOT batch_name or batch_code) for the batch name.
+- The 'courses', 'departments', and 'lecture_halls' tables also use the column 'name' for their respective names.
+- When querying using columnFilter, ensure you use the exact column name like 'name'.
 
 Example Flow for Scheduling:
 1. Admin: "Schedule a class for Software Engineering batch A tomorrow at 10am in Hall 1 with John Doe"
