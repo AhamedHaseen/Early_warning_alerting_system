@@ -9,12 +9,14 @@ dotenv.config();
 
 // The NVIDIA NIM base URL uses the OpenAI interface format
 const llm = new ChatOpenAI({
-  modelName: 'minimaxai/minimax-m2.7',
+  modelName: 'meta/llama-3.1-70b-instruct',
   apiKey: process.env.NVIDIA_API_KEY,
   configuration: {
     baseURL: 'https://integrate.api.nvidia.com/v1',
   },
-  temperature: 0.2, // slightly lower for predictable tool calling
+  temperature: 0.2,
+  topP: 0.7,
+  maxTokens: 1024,
 });
 
 // Tool 1: Query Database Tool (Read-only general questions)
@@ -30,19 +32,19 @@ const queryDatabaseTool = new DynamicStructuredTool({
   func: async ({ table, action, columnFilter, valueFilter }) => {
     try {
       let query = supabase.from(table).select('*', { count: 'exact' });
-      
+
       if (columnFilter && valueFilter) {
         query = query.eq(columnFilter, valueFilter);
       }
-      
+
       const { data, error, count } = await query;
-      
+
       if (error) throw error;
-      
+
       if (action === 'count') {
         return `There are ${count} records in ${table}${columnFilter ? ` where ${columnFilter}=${valueFilter}` : ''}.`;
       }
-      
+
       // Limit to 10 for 'list' to avoid massive responses
       return JSON.stringify(data.slice(0, 10));
     } catch (err) {
@@ -72,52 +74,52 @@ const checkAvailabilityTool = new DynamicStructuredTool({
           .eq('status', 'approved')
           .lte('start_date', date)
           .gte('end_date', date);
-          
-        const onLeave = leaves?.some(l => 
+
+        const onLeave = leaves?.some(l =>
           l.user_id === entityId || l.profile_id === entityId || l.staff_id === entityId
         );
-        
+
         if (onLeave) {
           return `The lecturer is on approved leave on ${date}.`;
         }
       }
-      
+
       // Step 2: Check timetables for overlap
       const { data: timetables, error } = await supabase
         .from('timetables')
         .select('*')
         .eq('specific_date', date);
-        
+
       if (error) throw error;
-      
+
       const timeToMinutes = (timeStr) => {
         if (!timeStr) return 0;
         const [h, m] = timeStr.split(':').map(Number);
         return h * 60 + m;
       };
-      
+
       const formStartMins = timeToMinutes(startTime);
       let formEndMins = timeToMinutes(endTime);
       if (formEndMins === 0) formEndMins = 24 * 60;
-      
+
       const conflicts = timetables.filter(t => {
         const s = timeToMinutes(t.start_time);
         let e = timeToMinutes(t.end_time);
         if (e === 0) e = 24 * 60;
-        
+
         const timeOverlap = (s < formEndMins && e > formStartMins);
         if (!timeOverlap) return false;
-        
+
         if (entityType === 'lecturer' && t.lecturer_id === entityId) return true;
         if (entityType === 'batch' && t.batch_id === entityId) return true;
         if (entityType === 'hall' && t.lecture_hall_id === entityId) return true;
         return false;
       });
-      
+
       if (conflicts.length > 0) {
         return `Conflict found! The ${entityType} is busy from ${conflicts[0].start_time} to ${conflicts[0].end_time} for module: ${conflicts[0].module_name || conflicts[0].course_id}.`;
       }
-      
+
       return `The ${entityType} is available on ${date} between ${startTime} and ${endTime}.`;
     } catch (err) {
       return `Error checking availability: ${err.message}`;
@@ -144,11 +146,11 @@ const scheduleSessionTool = new DynamicStructuredTool({
       const dateObj = new Date(payload.specific_date);
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       payload.day_of_week = days[dateObj.getDay()];
-      
+
       const { error } = await supabase.from('timetables').insert([payload]);
-      
+
       if (error) throw error;
-      
+
       const emailResult = await sendScheduleNotification(payload);
 
       return `Successfully scheduled the session for module "${payload.module_name}" on ${payload.specific_date} from ${payload.start_time} to ${payload.end_time}.${emailResult.message}`;
