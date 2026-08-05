@@ -1,7 +1,13 @@
 import React from 'react';
 import { Filter, Calendar, BookOpen, Layers, RefreshCw, Download } from 'lucide-react';
 
-const DashboardFilters = ({ filters, onFilterChange, onReset, onExport }) => {
+const DashboardFilters = ({ filters, onFilterChange, onReset, onExport, availableBatches = [] }) => {
+  const currentYear = new Date().getFullYear();
+  const academicYears = [
+    `${currentYear-1}/${currentYear}`,
+    `${currentYear}/${currentYear+1}`,
+    `${currentYear+1}/${currentYear+2}`
+  ];
   return (
     <div className="glass-card p-4 rounded-2xl mb-6 shadow-sm border border-slate-100/80 bg-white/70 backdrop-blur-md">
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -25,24 +31,9 @@ const DashboardFilters = ({ filters, onFilterChange, onReset, onExport }) => {
               className="bg-transparent text-slate-700 font-medium focus:outline-none cursor-pointer"
             >
               <option value="All">All Academic Years</option>
-              <option value="2023/2024">2023/2024</option>
-              <option value="2024/2025">2024/2025</option>
-              <option value="2025/2026">2025/2026</option>
-            </select>
-          </div>
-
-          {/* Semester */}
-          <div className="flex items-center bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 focus-within:ring-2 focus-within:ring-indigo-500">
-            <BookOpen className="w-3.5 h-3.5 text-slate-400 mr-1.5" />
-            <select
-              value={filters?.semester || 'All'}
-              onChange={(e) => onFilterChange?.('semester', e.target.value)}
-              className="bg-transparent text-slate-700 font-medium focus:outline-none cursor-pointer"
-            >
-              <option value="All">All Semesters</option>
-              <option value="Semester 1">Semester 1</option>
-              <option value="Semester 2">Semester 2</option>
-              <option value="Semester 3">Semester 3</option>
+              {academicYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
             </select>
           </div>
 
@@ -55,10 +46,18 @@ const DashboardFilters = ({ filters, onFilterChange, onReset, onExport }) => {
               className="bg-transparent text-slate-700 font-medium focus:outline-none cursor-pointer"
             >
               <option value="All">All Batches</option>
-              <option value="Batch 2021">Batch 2021</option>
-              <option value="Batch 2022">Batch 2022</option>
-              <option value="Batch 2023">Batch 2023</option>
-              <option value="Batch 2024">Batch 2024</option>
+              {availableBatches.length > 0 ? (
+                availableBatches.map(b => (
+                  <option key={b.id || b.name} value={b.name}>{b.name}</option>
+                ))
+              ) : (
+                <>
+                  <option value="Batch 2021">Batch 2021</option>
+                  <option value="Batch 2022">Batch 2022</option>
+                  <option value="Batch 2023">Batch 2023</option>
+                  <option value="Batch 2024">Batch 2024</option>
+                </>
+              )}
             </select>
           </div>
 

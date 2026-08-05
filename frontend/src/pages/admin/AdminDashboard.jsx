@@ -14,9 +14,8 @@ import AttendanceLineChart from '../../components/charts/AttendanceLineChart';
 import PerformanceTrendChart from '../../components/charts/PerformanceTrendChart';
 import RiskDistributionChart from '../../components/charts/RiskDistributionChart';
 import StackedBarChart from '../../components/charts/StackedBarChart';
-import AreaProgressionChart from '../../components/charts/AreaProgressionChart';
 import DoughnutChart from '../../components/charts/DoughnutChart';
-import HeatmapChart from '../../components/charts/HeatmapChart';
+import DepartmentEnrollmentChart from '../../components/charts/DepartmentEnrollmentChart';
 import TimelineActivityChart from '../../components/charts/TimelineActivityChart';
 
 const AdminDashboard = () => {
@@ -54,6 +53,16 @@ const AdminDashboard = () => {
   const [recentLogins, setRecentLogins] = useState([]);
   const [recentFeedback, setRecentFeedback] = useState([]);
 
+
+  // Chart Data States
+  const [attendanceTrendData, setAttendanceTrendData] = useState([]);
+  const [performanceBatchData, setPerformanceBatchData] = useState([]);
+  const [riskDistributionData, setRiskDistributionData] = useState([]);
+  const [assignmentBatchData, setAssignmentBatchData] = useState([]);
+  const [userRoleData, setUserRoleData] = useState([]);
+  const [departmentEnrollmentData, setDepartmentEnrollmentData] = useState([]);
+  const [availableBatches, setAvailableBatches] = useState([]);
+
   // Active Tab for Tables
   const [activeTableTab, setActiveTableTab] = useState('students');
 
@@ -63,7 +72,13 @@ const AdminDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      // 1. Fetch Counts from DB
+      // 1. Fetch Batches for Filters
+      const { data: batchesData } = await supabase.from('batches').select('*').order('name');
+      if (batchesData) setAvailableBatches(batchesData);
+      
+      const selectedBatch = filters.batch !== 'All' ? filters.batch : null;
+
+      // 2. Fetch System Counts (System-wide, irrespective of batch filters for top cards unless specified)
       const [
         { count: studentCount },
         { count: lecturerCount },
@@ -84,89 +99,265 @@ const AdminDashboard = () => {
         supabase.from('notifications').select('*', { count: 'exact', head: true }).eq('is_read', false)
       ]);
 
-      // 2. Fetch High Risk Students Count from exam_results
-      const { data: lowMarks } = await supabase.from('exam_results').select('student_id, marks').lt('marks', 40);
-      const uniqueRiskStudents = new Set((lowMarks || []).map(m => m.student_id)).size;
+      // 3. Fetch dependencies and apply Batch Filter
+      const { data: stProfiles } = await supabase.from('student_profiles').select('user_id, course_id, batches(name)');
+      const filteredProfiles = selectedBatch 
+          ? (stProfiles || []).filter(sp => sp.batches?.name === selectedBatch)
+          : (stProfiles || []);
+      const activeStudentIds = new Set(filteredProfiles.map(sp => sp.user_id));
+
+      const { data: allExamResults } = await supabase.from('exam_results').select('student_id, marks');
+      
+      // Filter exam results by the selected batch's students
+      const filteredExamResults = (allExamResults || []).filter(r => activeStudentIds.has(r.student_id));
+      const uniqueRiskStudents = new Set(filteredExamResults.filter(m => m.marks < 40).map(m => m.student_id)).size;
+
+      // 4. Today's Attendance Logic
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const today = new Date();
+      const todayDayName = days[today.getDay()];
+      
+      const { data: todayClasses } = await supabase.from('timetables').select('id').eq('day_of_week', todayDayName);
+      let todayAttendanceText = 'Pending';
+      
+      if (!todayClasses || todayClasses.length === 0) {
+          todayAttendanceText = 'No classes today';
+      } else {
+          const todayStr = today.toISOString().split('T')[0];
+          const { data: todayAtt } = await supabase.from('attendance').select('status, student_id').eq('date', todayStr);
+          if (todayAtt && todayAtt.length > 0) {
+              // Apply batch filter if applicable
+              const filteredAtt = selectedBatch ? todayAtt.filter(a => activeStudentIds.has(a.student_id)) : todayAtt;
+              if (filteredAtt.length > 0) {
+                const present = filteredAtt.filter(a => a.status === 'present').length;
+                todayAttendanceText = `${Math.round((present / filteredAtt.length) * 100)}%`;
+              } else {
+                todayAttendanceText = 'N/A for Batch';
+              }
+          }
+      }
 
       setStats({
-        students: studentCount || 0,
+        students: selectedBatch ? filteredProfiles.length : (studentCount || 0),
         lecturers: lecturerCount || 0,
         courses: courseCount || 0,
         batches: batchCount || 0,
         departments: deptCount || 0,
-        todayAttendance: '94.2%',
-        riskStudents: uniqueRiskStudents || 5,
+        todayAttendance: todayAttendanceText,
+        riskStudents: uniqueRiskStudents || 0,
         pendingAssignments: assignmentCount || 0,
         upcomingExams: examCount || 0,
         unreadNotifications: notifCount || 0
       });
 
-      // 3. Fetch Data for Tables
-      // Recently Registered Students
-      const { data: stData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'student')
-        .order('created_at', { ascending: false })
-        .limit(5);
+      // 5. Fetch Data for Tables
+      const { data: stData } = await supabase.from('profiles').select('*').eq('role', 'student').order('created_at', { ascending: false }).limit(5);
       if (stData) setRecentStudents(stData);
 
-      // Recently Added Lecturers
-      const { data: lecData } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('role', 'lecturer')
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const { data: lecData } = await supabase.from('profiles').select('*').eq('role', 'lecturer').order('created_at', { ascending: false }).limit(5);
       if (lecData) setRecentLecturers(lecData);
 
-      // Students Requiring Intervention
-      const { data: riskData } = await supabase
-        .from('exam_results')
-        .select('marks, student_id, profiles(full_name, email), modules(name)')
-        .lt('marks', 40)
-        .limit(5);
-      if (riskData) setInterventionStudents(riskData);
+      const { data: riskData } = await supabase.from('exam_results').select('marks, student_id, profiles(full_name, email), modules(name)').lt('marks', 40).limit(10);
+      if (riskData) {
+         setInterventionStudents(selectedBatch ? riskData.filter(r => activeStudentIds.has(r.student_id)).slice(0,5) : riskData.slice(0,5));
+      }
 
-      // Recent Notifications
-      const { data: notifData } = await supabase
-        .from('notifications')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(5);
+      const { data: notifData } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(5);
       if (notifData) setRecentNotifs(notifData);
 
-      // Upcoming Academic Events
-      const { data: eventData } = await supabase
-        .from('events')
-        .select('*')
-        .order('date', { ascending: true })
-        .limit(5);
+      const { data: eventData } = await supabase.from('events').select('*').order('date', { ascending: true }).limit(5);
       if (eventData) setUpcomingEvents(eventData);
 
-      // Assignment Deadlines
-      const { data: assignData } = await supabase
-        .from('assignments')
-        .select('*, modules(name)')
-        .order('due_date', { ascending: true })
-        .limit(5);
+      const { data: assignData } = await supabase.from('assignments').select('*, modules(name)').order('due_date', { ascending: true }).limit(5);
       if (assignData) setAssignmentDeadlines(assignData);
 
-      // Feedback and Complaints
-      const { data: fbData } = await supabase
-        .from('notifications')
-        .select('*')
-        .ilike('title', '%feedback%')
-        .limit(5);
+      const { data: fbData } = await supabase.from('notifications').select('*').ilike('title', '%feedback%').limit(5);
       if (fbData) setRecentFeedback(fbData);
 
-      // Simulated Recent Logins
-      setRecentLogins([
-        { id: 1, name: 'Dr. Sarah Connor', role: 'Lecturer', time: '2 mins ago', status: 'Active' },
-        { id: 2, name: 'John Doe', role: 'Student', time: '12 mins ago', status: 'Active' },
-        { id: 3, name: 'Admin System', role: 'Administrator', time: '25 mins ago', status: 'Active' },
-        { id: 4, name: 'Emily Watson', role: 'Student', time: '1 hour ago', status: 'Offline' }
+      const { data: recentUsers } = await supabase.from('profiles').select('id, full_name, role, created_at').order('created_at', { ascending: false }).limit(5);
+      if (recentUsers) {
+        setRecentLogins(recentUsers.map(u => ({
+          id: u.id,
+          name: u.full_name,
+          role: u.role.charAt(0).toUpperCase() + u.role.slice(1),
+          time: new Date(u.created_at).toLocaleDateString(),
+          status: 'Active'
+        })));
+      }
+
+      // 6. Chart Data
+      // --- A. System User Role Distribution ---
+      const roles = ['student', 'lecturer', 'admin'];
+      const roleCounts = await Promise.all(roles.map(async r => {
+        const { count } = await supabase.from('profiles').select('*', { count: 'exact', head: true }).eq('role', r);
+        return count || 0;
+      }));
+      // If a batch is selected, update student count to match batch
+      const finalStudentCount = selectedBatch ? filteredProfiles.length : roleCounts[0];
+      const totalUsers = finalStudentCount + roleCounts[1] + roleCounts[2] || 1;
+      
+      setUserRoleData([
+        { name: 'Students', value: finalStudentCount, color: '#3b82f6', percent: Math.round((finalStudentCount/totalUsers)*100) },
+        { name: 'Lecturers', value: roleCounts[1], color: '#10b981', percent: Math.round((roleCounts[1]/totalUsers)*100) },
+        { name: 'Administrators', value: roleCounts[2], color: '#8b5cf6', percent: Math.round((roleCounts[2]/totalUsers)*100) }
       ]);
+
+      // --- B. Student Risk Distribution ---
+      let lowRisk = 0, medRisk = 0, highRisk = 0;
+      if (filteredExamResults.length > 0) {
+        const studentMarks = {};
+        filteredExamResults.forEach(r => {
+          if (!studentMarks[r.student_id]) studentMarks[r.student_id] = [];
+          studentMarks[r.student_id].push(r.marks);
+        });
+        Object.values(studentMarks).forEach(marks => {
+          const avg = marks.reduce((a,b)=>a+b, 0) / marks.length;
+          if (avg < 40) highRisk++;
+          else if (avg < 60) medRisk++;
+          else lowRisk++;
+        });
+        setRiskDistributionData([
+          { name: 'Low Risk', value: lowRisk, color: '#10b981' },
+          { name: 'Medium Risk', value: medRisk, color: '#f59e0b' },
+          { name: 'High Risk', value: highRisk, color: '#ef4444' }
+        ]);
+      } else {
+        setRiskDistributionData([]);
+      }
+
+      // --- C. Average Performance Across Batches ---
+      if (filteredExamResults.length > 0 && stProfiles) {
+        const batchStats = {};
+        const studentBatchMap = {};
+        stProfiles.forEach(sp => {
+           studentBatchMap[sp.user_id] = sp.batches?.name || 'Unknown Batch';
+        });
+
+        filteredExamResults.forEach(r => {
+           const bName = studentBatchMap[r.student_id] || 'Unknown Batch';
+           if (!batchStats[bName]) batchStats[bName] = { totalMarks: 0, count: 0, passes: 0 };
+           batchStats[bName].totalMarks += r.marks;
+           batchStats[bName].count++;
+           if (r.marks >= 40) batchStats[bName].passes++;
+        });
+
+        const perfData = Object.keys(batchStats).map(bName => ({
+           batch: bName,
+           avgScore: Math.round(batchStats[bName].totalMarks / batchStats[bName].count),
+           passRate: Math.round((batchStats[bName].passes / batchStats[bName].count) * 100)
+        })).slice(0, 5);
+        setPerformanceBatchData(perfData.length > 0 ? perfData : []);
+      } else {
+        setPerformanceBatchData([]);
+      }
+
+      // --- D. Assignment Submission Status by Batch ---
+      const { data: allSubmissions } = await supabase.from('submissions').select('student_id, assignment_id, submitted_at');
+      const { data: allAssignments } = await supabase.from('assignments').select('id, due_date, modules(course_id)');
+      if (allSubmissions && allAssignments && stProfiles) {
+         const studentBatchMap = {};
+         const courseStudents = {}; 
+         
+         stProfiles.forEach(sp => { 
+             const bName = sp.batches?.name || 'Unknown Batch';
+             studentBatchMap[sp.user_id] = bName; 
+             if (sp.course_id) {
+                 if (!courseStudents[sp.course_id]) courseStudents[sp.course_id] = [];
+                 courseStudents[sp.course_id].push(sp.user_id);
+             }
+         });
+
+         const assignStats = {};
+         const initBatch = (bName) => {
+             if (!assignStats[bName]) assignStats[bName] = { submitted: 0, pending: 0, overdue: 0 };
+         };
+
+         const now = new Date();
+
+         allAssignments.forEach(assign => {
+             const courseId = assign.modules?.course_id;
+             let expectedStudents = courseStudents[courseId] || [];
+             // Apply batch filter logic
+             if (selectedBatch) {
+                 expectedStudents = expectedStudents.filter(sid => activeStudentIds.has(sid));
+             }
+
+             const dueDate = new Date(assign.due_date);
+             const isOverdue = dueDate < now;
+
+             expectedStudents.forEach(studentId => {
+                 const bName = studentBatchMap[studentId];
+                 initBatch(bName);
+                 const hasSubmitted = allSubmissions.some(sub => sub.assignment_id === assign.id && sub.student_id === studentId);
+                 if (hasSubmitted) {
+                     assignStats[bName].submitted++;
+                 } else {
+                     if (isOverdue) assignStats[bName].overdue++;
+                     else assignStats[bName].pending++;
+                 }
+             });
+         });
+         
+         const assignData = Object.keys(assignStats).map(bName => {
+            const stats = assignStats[bName];
+            return {
+               batch: bName,
+               submitted: stats.submitted,
+               pending: stats.pending, 
+               overdue: stats.overdue
+            };
+         });
+         
+         setAssignmentBatchData(assignData.length > 0 ? assignData.slice(0,5) : []);
+      }
+
+      // --- E. Monthly Student Attendance Trend ---
+      const { data: attendanceData } = await supabase.from('attendance').select('date, status, student_id');
+      if (attendanceData && attendanceData.length > 0) {
+        const filteredAttendance = selectedBatch 
+            ? attendanceData.filter(a => activeStudentIds.has(a.student_id))
+            : attendanceData;
+
+        if (filteredAttendance.length > 0) {
+          const total = filteredAttendance.length;
+          const segments = 4;
+          const trendData = Array.from({length: segments}).map((_, i) => {
+            const chunk = filteredAttendance.slice(i * Math.floor(total/segments), (i+1) * Math.floor(total/segments));
+            const p = chunk.filter(a => a.status === 'present').length;
+            return {
+               week: `Week ${i+1}`,
+               attendance: chunk.length > 0 ? Math.round((p / chunk.length) * 100) : 0
+            };
+          });
+          setAttendanceTrendData(trendData);
+        } else {
+          setAttendanceTrendData([]);
+        }
+      }
+
+      // --- F. Department Enrollment Data (Replacing Heatmap) ---
+      const { data: coursesData } = await supabase.from('courses').select('id, departments(name)');
+      if (coursesData && filteredProfiles.length > 0) {
+         const courseDeptMap = {};
+         coursesData.forEach(c => {
+             courseDeptMap[c.id] = c.departments?.name || 'Unknown';
+         });
+         
+         const deptCounts = {};
+         filteredProfiles.forEach(sp => {
+             const dName = courseDeptMap[sp.course_id] || 'Unknown';
+             if (!deptCounts[dName]) deptCounts[dName] = 0;
+             deptCounts[dName]++;
+         });
+         
+         const deptChartData = Object.keys(deptCounts).map((d, index) => ({
+             department: d,
+             students: deptCounts[d]
+         }));
+         setDepartmentEnrollmentData(deptChartData);
+      } else {
+         setDepartmentEnrollmentData([]);
+      }
 
     } catch (err) {
       console.error('Error fetching admin dashboard data:', err);
@@ -210,8 +401,9 @@ const AdminDashboard = () => {
       <DashboardFilters
         filters={filters}
         onFilterChange={(key, val) => setFilters(f => ({ ...f, [key]: val }))}
-        onReset={() => setFilters({ academicYear: 'All', semester: 'All', batch: 'All', dateRange: '30days' })}
+        onReset={() => setFilters({ academicYear: 'All', batch: 'All', dateRange: '30days' })}
         onExport={handleExportCSV}
+        availableBatches={availableBatches}
       />
 
       {/* 1. 10 Summary Statistic Cards Grid */}
@@ -237,38 +429,35 @@ const AdminDashboard = () => {
         {/* Row 1: Attendance Line Chart & Batch Performance Bar Chart */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <ChartCard title="Monthly Student Attendance Trend" icon={<TrendingUp className="text-blue-500" />}>
-            <AttendanceLineChart />
+            <AttendanceLineChart data={attendanceTrendData} />
           </ChartCard>
           <ChartCard title="Average Performance Across Batches" icon={<BarChart3Icon className="text-emerald-500" />}>
-            <PerformanceTrendChart />
+            <PerformanceTrendChart data={performanceBatchData} />
           </ChartCard>
         </div>
 
         {/* Row 2: Risk Distribution Pie Chart & Stacked Assignment Submissions */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <ChartCard title="Student Risk Distribution" icon={<AlertCircle className="text-red-500" />}>
-            <RiskDistributionChart />
+            <RiskDistributionChart data={riskDistributionData} />
           </ChartCard>
           <ChartCard title="Assignment Submission Status by Batch" icon={<FileCheck className="text-amber-500" />}>
-            <StackedBarChart />
+            <StackedBarChart data={assignmentBatchData} />
           </ChartCard>
         </div>
 
-        {/* Row 3: Semester Progression Area & User Distribution Doughnut */}
+        {/* Row 3: User Role Distribution & Attendance Heatmap */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Semester-Wise Academic Progression" icon={<TrendingUp className="text-indigo-500" />}>
-            <AreaProgressionChart />
-          </ChartCard>
           <ChartCard title="System User Role Distribution" icon={<Users className="text-purple-500" />}>
-            <DoughnutChart />
+            <DoughnutChart data={userRoleData} />
+          </ChartCard>
+          <ChartCard title="Student Enrollment by Department" icon={<Building2 className="text-teal-500" />}>
+            <DepartmentEnrollmentChart data={departmentEnrollmentData} />
           </ChartCard>
         </div>
 
-        {/* Row 4: Weekday Attendance Heatmap & Recent Activity Timeline */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Attendance Heatmap by Weekday & Period" icon={<Calendar className="text-teal-500" />}>
-            <HeatmapChart />
-          </ChartCard>
+        {/* Row 4: Recent Activity Timeline */}
+        <div className="grid grid-cols-1 gap-6">
           <ChartCard title="Recent Academic Activities Timeline" icon={<Clock className="text-slate-500" />}>
             <TimelineActivityChart />
           </ChartCard>

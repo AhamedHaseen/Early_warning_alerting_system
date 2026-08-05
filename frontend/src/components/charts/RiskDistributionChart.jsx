@@ -1,7 +1,7 @@
 import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
-const data = [
+const defaultData = [
   { name: 'Low Risk', value: 1050, color: '#10b981' }, // Emerald 500
   { name: 'Medium Risk', value: 156, color: '#f59e0b' }, // Amber 500
   { name: 'High Risk', value: 42, color: '#ef4444' } // Red 500
@@ -21,13 +21,15 @@ const CustomTooltip = ({ active, payload }) => {
   return null;
 };
 
-const RiskDistributionChart = () => {
+const RiskDistributionChart = ({ data }) => {
+  const chartData = data !== undefined ? data : defaultData;
+
   return (
     <div className="w-full h-full min-h-[250px]">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
-            data={data}
+            data={chartData}
             cx="50%"
             cy="50%"
             innerRadius={60}
@@ -36,7 +38,7 @@ const RiskDistributionChart = () => {
             dataKey="value"
             stroke="none"
           >
-            {data.map((entry, index) => (
+            {chartData.map((entry, index) => (
               <Cell key={`cell-${index}`} fill={entry.color} className="drop-shadow-sm hover:opacity-80 transition-opacity duration-300" />
             ))}
           </Pie>

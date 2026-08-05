@@ -13,6 +13,8 @@ const HeatmapChart = ({ data }) => {
     [84, 80, 72, 65], // Friday afternoon lower
   ];
 
+  const gridData = data && data.length === 5 ? data : defaultGrid;
+
   const getColorClass = (val) => {
     if (val >= 90) return 'bg-emerald-500 text-white font-semibold';
     if (val >= 80) return 'bg-emerald-400 text-white font-medium';
@@ -37,7 +39,7 @@ const HeatmapChart = ({ data }) => {
               <tr key={dIdx}>
                 <td className="p-2 font-bold text-slate-700 text-left bg-slate-50 rounded-lg">{day}</td>
                 {periods.map((_, pIdx) => {
-                  const val = defaultGrid[dIdx][pIdx];
+                  const val = gridData[dIdx][pIdx];
                   return (
                     <td
                       key={pIdx}

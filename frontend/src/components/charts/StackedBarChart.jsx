@@ -26,7 +26,7 @@ const StackedBarChart = ({ data }) => {
     { batch: 'Batch 2024', submitted: 160, pending: 10, overdue: 2 },
   ];
 
-  const chartData = data && data.length > 0 ? data : defaultData;
+  const chartData = data !== undefined ? data : defaultData;
 
   return (
     <div className="w-full h-full min-h-[300px]">

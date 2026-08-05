@@ -20,7 +20,7 @@ const DoughnutChart = ({ data }) => {
     { name: 'Administrators', value: 12, color: '#8b5cf6', percent: 6 }
   ];
 
-  const chartData = data && data.length > 0 ? data : defaultData;
+  const chartData = data !== undefined ? data : defaultData;
 
   return (
     <div className="w-full h-full min-h-[280px]">
