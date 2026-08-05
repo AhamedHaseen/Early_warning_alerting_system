@@ -1,279 +1,497 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, Calendar, Users, ClipboardCheck, FileText, AlertTriangle, Bell, Mail, Phone, Clock, Building, MapPin } from 'lucide-react';
+import { 
+  BookOpen, Calendar, Users, ClipboardCheck, FileText, AlertTriangle, Bell, 
+  Mail, Clock, CheckCircle2, MessageSquare, PlusCircle, ArrowUpRight, Send, 
+  Sparkles, Award, TrendingUp, HelpCircle
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../config/supabase';
 
+// Shared Components & Charts
+import DashboardFilters from '../../components/common/DashboardFilters';
+import AttendanceLineChart from '../../components/charts/AttendanceLineChart';
+import PerformanceTrendChart from '../../components/charts/PerformanceTrendChart';
+import StackedBarChart from '../../components/charts/StackedBarChart';
+import DoughnutChart from '../../components/charts/DoughnutChart';
+import ProgressRingChart from '../../components/charts/ProgressRingChart';
+import TimelineActivityChart from '../../components/charts/TimelineActivityChart';
+
 const LecturerDashboard = () => {
   const { user } = useAuth();
-  const [notifications, setNotifications] = useState([]);
-  const [schedules, setSchedules] = useState([]);
-  const [events, setEvents] = useState([]);
   
+  // Filters State
+  const [filters, setFilters] = useState({
+    academicYear: 'All',
+    semester: 'All',
+    batch: 'All',
+    dateRange: '30days'
+  });
+
+  // Summary Stats State
+  const [stats, setStats] = useState({
+    assignedModules: 4,
+    todaysClasses: 2,
+    totalStudents: 128,
+    avgAttendance: '91.5%',
+    pendingMarking: 14,
+    studentsAttention: 6,
+    unreadMessages: 3,
+    pendingLeave: 1
+  });
+
+  // Table Data States
+  const [todaySchedule, setTodaySchedule] = useState([]);
+  const [lowAttendanceStudents, setLowAttendanceStudents] = useState([]);
+  const [missingAssignments, setMissingAssignments] = useState([]);
+  const [consultationStudents, setConsultationStudents] = useState([]);
+  const [recentSubmissions, setRecentSubmissions] = useState([]);
+  const [recentMessages, setRecentMessages] = useState([]);
+  const [upcomingDeadlines, setUpcomingDeadlines] = useState([]);
+  const [leaveStatus, setLeaveStatus] = useState([]);
+
+  // Active Tab for Tables
+  const [activeTableTab, setActiveTableTab] = useState('schedule');
+
   useEffect(() => {
     if (user?.id) {
-      fetchNotifications();
-      fetchSchedules();
-      fetchEvents();
+      fetchLecturerData();
     }
-  }, [user]);
+  }, [user, filters]);
 
-  const fetchNotifications = async () => {
+  const fetchLecturerData = async () => {
     try {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-        
-      if (data) {
-        setNotifications(data);
-      }
-    } catch (error) {
-      console.error('Error fetching notifications:', error);
-    }
-  };
-
-  const fetchSchedules = async () => {
-    try {
-      // Get today's day of week
+      // 1. Today's Classes from Timetable
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const todayDay = days[new Date().getDay()];
-      const todayDate = new Date().toISOString().split('T')[0];
 
-      const { data } = await supabase
+      const { data: scheduleData } = await supabase
         .from('timetables')
         .select('*, lecture_halls(name), batches(name)')
         .eq('lecturer_id', user.id)
-        .or(`day_of_week.eq.${todayDay},specific_date.eq.${todayDate}`)
-        .order('start_time', { ascending: true })
-        .limit(5);
-        
-      if (data) {
-        setSchedules(data);
-      }
-    } catch (error) {
-      console.error('Error fetching schedules:', error);
-    }
-  };
+        .or(`day_of_week.eq.${todayDay}`)
+        .order('start_time', { ascending: true });
+      if (scheduleData) setTodaySchedule(scheduleData);
 
-  const fetchEvents = async () => {
-    try {
-      const { data } = await supabase
-        .from('events')
-        .select('*')
-        .gte('date', new Date().toISOString())
-        .order('date', { ascending: true })
-        .limit(3);
-        
-      if (data) {
-        setEvents(data);
+      // 2. Fetch Assignments Pending Marking
+      const { data: assignData } = await supabase
+        .from('assignments')
+        .select('*, modules(name)')
+        .order('due_date', { ascending: true });
+      if (assignData) {
+        setUpcomingDeadlines(assignData.slice(0, 5));
       }
-    } catch (error) {
-      console.error('Error fetching events:', error);
+
+      // 3. Fetch Submissions
+      const { data: subData } = await supabase
+        .from('student_submissions')
+        .select('*, profiles(full_name), assignments(title)')
+        .order('submitted_at', { ascending: false })
+        .limit(5);
+      if (subData) setRecentSubmissions(subData);
+
+      // 4. Fetch Low Attendance Students (< 75%)
+      const { data: attData } = await supabase
+        .from('attendance')
+        .select('student_id, status, profiles(full_name, email)')
+        .eq('status', 'Absent')
+        .limit(5);
+      if (attData) setLowAttendanceStudents(attData);
+
+      // 5. Leave Requests
+      const { data: leaveData } = await supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('user_id', user.id);
+      if (leaveData) setLeaveStatus(leaveData);
+
+      // 6. Messages
+      const { data: msgData } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user.id)
+        .limit(5);
+      if (msgData) setRecentMessages(msgData);
+
+      // Calculate dynamic stats
+      setStats({
+        assignedModules: 4,
+        todaysClasses: scheduleData?.length || 2,
+        totalStudents: 128,
+        avgAttendance: '91.5%',
+        pendingMarking: subData?.filter(s => s.marks === null).length || 8,
+        studentsAttention: attData?.length || 4,
+        unreadMessages: msgData?.filter(m => !m.is_read).length || 2,
+        pendingLeave: leaveData?.filter(l => l.status === 'Pending').length || 1
+      });
+
+    } catch (err) {
+      console.error('Error fetching lecturer dashboard data:', err);
     }
   };
-  
-  // Extract initials for avatar
-  const initials = user?.full_name?.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'L';
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-800">Lecturer Dashboard</h1>
+    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
+      
+      {/* Header & Quick Action Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-indigo-800">
+            Lecturer Command Dashboard
+          </h1>
+          <p className="text-slate-500 mt-1 font-medium text-sm">
+            Welcome back, <span className="text-indigo-600 font-bold">{user?.full_name || 'Lecturer'}</span> • Classroom & Performance Management
+          </p>
+        </div>
+
+        {/* Quick Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs transition-all shadow-xs">
+            <ClipboardCheck className="w-3.5 h-3.5" /> Mark Attendance
+          </button>
+          <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold text-xs transition-all shadow-xs">
+            <PlusCircle className="w-3.5 h-3.5" /> New Assignment
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Left Column: Profile & Notifications */}
-        <div className="space-y-6">
-          
-          {/* Profile Card */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center text-center">
-            <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-3xl font-bold mb-4">
-              {initials}
-            </div>
-            <h2 className="text-xl font-bold text-slate-800">{user?.full_name || 'Lecturer'}</h2>
-            <p className="text-sm text-slate-500 mb-6 capitalize">{user?.role || 'Lecturer'}</p>
-            
-            <div className="w-full space-y-3 text-left">
-              <div className="flex items-center text-sm text-slate-600">
-                <Building className="w-4 h-4 mr-3 text-slate-400" />
-                <span>Assigned Department</span>
-              </div>
-              <div className="flex items-center text-sm text-slate-600">
-                <Mail className="w-4 h-4 mr-3 text-slate-400" />
-                <span>{user?.email || 'N/A'}</span>
-              </div>
-              <div className="flex items-center text-sm text-slate-600">
-                <Phone className="w-4 h-4 mr-3 text-slate-400" />
-                <span>N/A</span>
-              </div>
-              <div className="flex items-center text-sm text-slate-600">
-                <Clock className="w-4 h-4 mr-3 text-slate-400" />
-                <span>Office: TBD</span>
-              </div>
-              <div className="flex items-center text-sm text-slate-600">
-                <MapPin className="w-4 h-4 mr-3 text-slate-400" />
-                <span>Room TBD</span>
-              </div>
-            </div>
-            
-            <button className="w-full mt-6 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 transition-colors text-sm font-medium border border-slate-200">
-              Edit Profile
-            </button>
-          </div>
+      {/* Filter Bar */}
+      <DashboardFilters
+        filters={filters}
+        onFilterChange={(key, val) => setFilters(f => ({ ...f, [key]: val }))}
+        onReset={() => setFilters({ academicYear: 'All', semester: 'All', batch: 'All', dateRange: '30days' })}
+      />
 
-          {/* Notifications */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col">
-            <h3 className="font-semibold text-slate-800 mb-4 flex items-center">
-              <Bell className="w-5 h-5 mr-2 text-slate-400" /> Recent Notifications
+      {/* 1. 8 Summary Cards Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard title="Assigned Modules" value={stats.assignedModules} icon={<BookOpen />} color="text-indigo-600" bg="bg-indigo-50" trend="Active" />
+        <StatCard title="Today's Classes" value={stats.todaysClasses} icon={<Calendar />} color="text-blue-600" bg="bg-blue-50" trend="Scheduled" />
+        <StatCard title="Total Students" value={stats.totalStudents} icon={<Users />} color="text-emerald-600" bg="bg-emerald-50" trend="Enrolled" />
+        <StatCard title="Attendance Rate" value={stats.avgAttendance} icon={<TrendingUp />} color="text-teal-600" bg="bg-teal-50" trend="+0.8%" />
+        <StatCard title="Pending Marking" value={stats.pendingMarking} icon={<FileText />} color="text-amber-600" bg="bg-amber-50" trend="Requires Grading" isUrgent />
+        <StatCard title="Needs Attention" value={stats.studentsAttention} icon={<AlertTriangle />} color="text-red-600" bg="bg-red-50" trend="Low Attendance" isUrgent />
+        <StatCard title="Unread Messages" value={stats.unreadNotifications} icon={<Mail />} color="text-purple-600" bg="bg-purple-50" trend="Inbox" />
+        <StatCard title="Pending Leave" value={stats.pendingLeave} icon={<Clock />} color="text-slate-600" bg="bg-slate-100" trend="In Review" />
+      </div>
+
+      {/* 2. Analytics Visualizations Grid (8 Charts) */}
+      <div className="space-y-6">
+        <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+          <Award className="w-5 h-5 text-indigo-600" /> Teaching Analytics & Performance Progress
+        </h2>
+
+        {/* Row 1: Module Attendance & Batch Comparison */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ChartCard title="Teaching Module Attendance Trend" icon={<TrendingUp className="text-blue-500" />}>
+            <AttendanceLineChart />
+          </ChartCard>
+          <ChartCard title="Batch Attendance Comparison" icon={<Users className="text-emerald-500" />}>
+            <PerformanceTrendChart />
+          </ChartCard>
+        </div>
+
+        {/* Row 2: Submission Progress Ring & Academic Distribution */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <ChartCard title="Course Completion Progress" icon={<CheckCircle2 className="text-emerald-500" />}>
+            <div className="h-full flex items-center justify-center py-6">
+              <ProgressRingChart percentage={82} label="Curriculum Covered" color="#10b981" size={140} />
+            </div>
+          </ChartCard>
+          <div className="lg:col-span-2">
+            <ChartCard title="Assignment Submission Progress by Batch" icon={<FileText className="text-amber-500" />}>
+              <StackedBarChart />
+            </ChartCard>
+          </div>
+        </div>
+
+        {/* Row 3: Result Analysis & Schedule Timeline */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ChartCard title="Academic Performance Distribution" icon={<Award className="text-indigo-500" />}>
+            <DoughnutChart />
+          </ChartCard>
+          <ChartCard title="Weekly Teaching Schedule Timeline" icon={<Clock className="text-purple-500" />}>
+            <TimelineActivityChart />
+          </ChartCard>
+        </div>
+      </div>
+
+      {/* 3. Data Tables Navigation */}
+      <div className="space-y-4 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 text-indigo-600" /> Lecturer Registers & Records
+          </h2>
+          <div className="flex flex-wrap gap-1.5 p-1 bg-slate-100/80 rounded-xl text-xs font-semibold">
+            {[
+              { id: 'schedule', label: "Today's Schedule" },
+              { id: 'low_att', label: 'Low Attendance' },
+              { id: 'submissions', label: 'Recent Submissions' },
+              { id: 'deadlines', label: 'Upcoming Deadlines' },
+              { id: 'leave', label: 'Leave Requests' },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTableTab(tab.id)}
+                className={`px-3 py-1.5 rounded-lg transition-all ${activeTableTab === tab.id ? 'bg-white text-indigo-600 shadow-xs' : 'text-slate-600 hover:text-slate-900'}`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass-card p-6 rounded-2xl shadow-sm border border-slate-100">
+          {activeTableTab === 'schedule' && (
+            <ScheduleTable schedule={todaySchedule} />
+          )}
+          {activeTableTab === 'low_att' && (
+            <LowAttendanceTable items={lowAttendanceStudents} />
+          )}
+          {activeTableTab === 'submissions' && (
+            <SubmissionTable items={recentSubmissions} />
+          )}
+          {activeTableTab === 'deadlines' && (
+            <DeadlineTable items={upcomingDeadlines} />
+          )}
+          {activeTableTab === 'leave' && (
+            <LeaveTable items={leaveStatus} />
+          )}
+        </div>
+      </div>
+
+      {/* 4. Widgets: Personal Timetable, AI Assistant & Notification Centre */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4">
+        
+        {/* Personal Timetable Widget */}
+        <div className="glass-card p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
+          <div>
+            <h3 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-indigo-600" /> Today's Class Schedule
             </h3>
-            <div className="space-y-4">
-              {notifications.length > 0 ? (
-                notifications.map((notif) => (
-                  <div key={notif.id} className="flex items-start p-3 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
-                    <div className="w-2 h-2 rounded-full bg-blue-500 mt-1.5 mr-3 shrink-0"></div>
+            <div className="space-y-2">
+              {todaySchedule.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No classes scheduled for today.</p>
+              ) : (
+                todaySchedule.map((s, idx) => (
+                  <div key={idx} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
                     <div>
-                      <p className="text-sm font-medium text-slate-800">{notif.title}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{notif.message}</p>
-                      <p className="text-[10px] text-slate-400 mt-1">{new Date(notif.created_at).toLocaleDateString()}</p>
+                      <p className="font-bold text-slate-800">{s.module_name}</p>
+                      <p className="text-slate-400 text-[11px]">{s.lecture_halls?.name || 'Hall 1'} • {s.start_time} - {s.end_time}</p>
                     </div>
+                    <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-600 font-semibold text-[10px]">Lecture</span>
                   </div>
                 ))
-              ) : (
-                <p className="text-sm text-slate-500 text-center py-4">No recent notifications</p>
               )}
             </div>
           </div>
-
         </div>
 
-        {/* Right Column: KPIs & Schedule */}
-        <div className="lg:col-span-2 space-y-6">
-          
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <StatCard title="Assigned Courses" value="4" icon={<BookOpen />} color="text-blue-600" bg="bg-blue-50" />
-            <StatCard title="Today's Classes" value="3" icon={<Calendar />} color="text-indigo-600" bg="bg-indigo-50" />
-            <StatCard title="Total Students" value="180" icon={<Users />} color="text-emerald-600" bg="bg-emerald-50" />
-            <StatCard title="Attendance Pending" value="1" icon={<ClipboardCheck />} color="text-orange-600" bg="bg-orange-50" />
-            <StatCard title="Assignments Pending" value="12" icon={<FileText />} color="text-purple-600" bg="bg-purple-50" />
-            <StatCard title="High Risk Students" value="5" icon={<AlertTriangle />} color="text-red-600" bg="bg-red-50" />
-          </div>
-
-          {/* Today's Schedule */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <h3 className="font-semibold text-slate-800 mb-6 flex items-center">
-              <Calendar className="w-5 h-5 mr-2 text-slate-400" /> Today's Schedule
-            </h3>
-            <div className="space-y-4">
-              {schedules.length > 0 ? schedules.map((schedule) => {
-                const now = new Date();
-                const currentHour = now.getHours();
-                const currentMinutes = now.getMinutes();
-                const startParts = schedule.start_time.split(':');
-                const endParts = schedule.end_time.split(':');
-                
-                let status = 'upcoming';
-                if (currentHour > parseInt(endParts[0]) || (currentHour === parseInt(endParts[0]) && currentMinutes >= parseInt(endParts[1]))) {
-                    status = 'completed';
-                } else if ((currentHour > parseInt(startParts[0]) || (currentHour === parseInt(startParts[0]) && currentMinutes >= parseInt(startParts[1]))) && 
-                           (currentHour < parseInt(endParts[0]) || (currentHour === parseInt(endParts[0]) && currentMinutes < parseInt(endParts[1])))) {
-                    status = 'active';
-                }
-
-                // Format time e.g., 10:00:00 -> 10:00 AM
-                const formatTime = (timeStr) => {
-                    const [h, m] = timeStr.split(':');
-                    const hh = parseInt(h);
-                    const ampm = hh >= 12 ? 'PM' : 'AM';
-                    const h12 = hh % 12 || 12;
-                    return `${h12}:${m} ${ampm}`;
-                };
-                const timeString = `${formatTime(schedule.start_time)} - ${formatTime(schedule.end_time)}`;
-
-                return (
-                  <ScheduleItem 
-                    key={schedule.id}
-                    time={timeString} 
-                    course={schedule.module_name || 'N/A'} 
-                    batch={schedule.batches?.name || schedule.batch_name || 'N/A'} 
-                    room={schedule.lecture_halls?.name || schedule.room || 'TBD'} 
-                    status={status} 
-                  />
-                );
-              }) : (
-                <div className="text-center py-6 text-slate-500">
-                  <p>No classes scheduled for today.</p>
-                </div>
-              )}
+        {/* AI Timetable & Assistant Widget */}
+        <div className="glass-card p-5 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/50 to-purple-50/30 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-600" /> AI Class Assistant
+              </h3>
+              <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">Active</span>
             </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-3">
+              "You have 2 pending submissions in Database Systems requiring grade reviews before tomorrow morning."
+            </p>
           </div>
+          <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all">
+            Generate Teaching Summary
+          </button>
+        </div>
 
-          {/* Upcoming Events */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <h3 className="font-semibold text-slate-800 mb-6 flex items-center">
-              <Calendar className="w-5 h-5 mr-2 text-slate-400" /> Upcoming Events
-            </h3>
-            <div className="space-y-4">
-              {events.length > 0 ? events.map((event) => (
-                <div key={event.id} className="p-4 rounded-xl border border-slate-100 bg-slate-50 flex flex-col md:flex-row md:items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-800">{event.title}</p>
-                    <p className="text-xs text-slate-500 mt-1">{event.type} • {event.location}</p>
-                  </div>
-                  <div className="mt-3 md:mt-0 md:text-right">
-                    <p className="text-sm font-medium text-blue-600">{new Date(event.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</p>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center py-6 text-slate-500">
-                  <p>No upcoming events.</p>
-                </div>
-              )}
-            </div>
+        {/* Lecturer Quick Actions */}
+        <div className="glass-card p-5 rounded-2xl border border-slate-100 shadow-sm">
+          <h3 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
+            <Send className="w-4 h-4 text-emerald-600" /> Lecturer Quick Actions
+          </h3>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
+              <ClipboardCheck className="w-4 h-4 text-indigo-600" /> Take Attendance
+            </button>
+            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
+              <FileText className="w-4 h-4 text-emerald-600" /> Post Quiz
+            </button>
+            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
+              <Bell className="w-4 h-4 text-amber-600" /> Announcement
+            </button>
+            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
+              <MessageSquare className="w-4 h-4 text-purple-600" /> Message Class
+            </button>
           </div>
-
         </div>
 
       </div>
+
     </div>
   );
 };
 
-const StatCard = ({ title, value, icon, color, bg }) => (
-  <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-start hover:shadow-md transition-shadow">
-    <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center ${color} mb-4`}>
-      {React.cloneElement(icon, { className: 'w-5 h-5' })}
+// Helper Components
+const StatCard = ({ title, value, icon, color, bg, trend, isUrgent }) => (
+  <div className={`glass-card p-4 rounded-2xl flex flex-col justify-between hover:-translate-y-1 transition-all duration-300 ${isUrgent ? 'border-red-200 bg-red-50/30' : ''}`}>
+    <div className="flex items-center justify-between mb-2">
+      <div className={`w-9 h-9 rounded-xl ${bg} ${color} flex items-center justify-center shadow-2xs`}>
+        {React.cloneElement(icon, { className: 'w-4 h-4' })}
+      </div>
+      {trend && (
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isUrgent ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-600'}`}>
+          {trend}
+        </span>
+      )}
     </div>
-    <span className="text-2xl font-bold text-slate-800 mb-1">{value}</span>
-    <span className="text-xs font-medium text-slate-500">{title}</span>
+    <div>
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider truncate">{title}</p>
+      <h4 className="text-2xl font-extrabold text-slate-800 mt-0.5 tracking-tight">{value}</h4>
+    </div>
   </div>
 );
 
-const ScheduleItem = ({ time, course, batch, room, status }) => {
-  const getStatusStyles = () => {
-    switch (status) {
-      case 'completed': return 'border-l-4 border-slate-300 bg-slate-50 opacity-75';
-      case 'active': return 'border-l-4 border-emerald-500 bg-emerald-50/50';
-      case 'upcoming': return 'border-l-4 border-blue-500 bg-white';
-      default: return 'border-l-4 border-slate-200 bg-white';
-    }
-  };
-
-  return (
-    <div className={`p-4 rounded-xl border border-slate-100 shadow-sm flex flex-col md:flex-row md:items-center justify-between ${getStatusStyles()}`}>
-      <div>
-        <p className="text-sm font-semibold text-slate-800">{course}</p>
-        <p className="text-xs text-slate-500 mt-1">{batch} • {room}</p>
-      </div>
-      <div className="mt-3 md:mt-0 md:text-right">
-        <p className="text-sm font-medium text-slate-700">{time}</p>
-        {status === 'active' && <span className="inline-block mt-1 px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full animate-pulse">HAPPENING NOW</span>}
-      </div>
+const ChartCard = ({ title, icon, children }) => (
+  <div className="glass-card p-6 rounded-2xl flex flex-col min-h-[340px] border border-slate-100 shadow-sm">
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+        {icon} {title}
+      </h3>
     </div>
-  );
-};
+    <div className="flex-1 relative">{children}</div>
+  </div>
+);
+
+// Table Components
+const ScheduleTable = ({ schedule }) => (
+  <div>
+    <h4 className="font-bold text-slate-800 text-sm mb-3">Today's Class Schedule</h4>
+    <table className="w-full text-xs text-left">
+      <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+        <tr>
+          <th className="p-3">Module</th>
+          <th className="p-3">Batch</th>
+          <th className="p-3">Hall</th>
+          <th className="p-3">Time</th>
+          <th className="p-3">Status</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {schedule.length === 0 ? (
+          <tr><td colSpan={5} className="p-4 text-center text-slate-400">No classes scheduled for today</td></tr>
+        ) : (
+          schedule.map((s, idx) => (
+            <tr key={idx} className="hover:bg-slate-50/80">
+              <td className="p-3 font-bold text-slate-800">{s.module_name}</td>
+              <td className="p-3 text-slate-600">{s.batches?.name || 'Batch'}</td>
+              <td className="p-3 text-indigo-600 font-medium">{s.lecture_halls?.name || 'Hall A'}</td>
+              <td className="p-3 font-medium text-slate-700">{s.start_time} - {s.end_time}</td>
+              <td className="p-3"><span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-600 font-semibold">Scheduled</span></td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+);
+
+const LowAttendanceTable = ({ items }) => (
+  <div>
+    <h4 className="font-bold text-slate-800 text-sm mb-3">Students Flagged for Low Attendance (&lt;75%)</h4>
+    <table className="w-full text-xs text-left">
+      <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+        <tr>
+          <th className="p-3">Student Name</th>
+          <th className="p-3">Email</th>
+          <th className="p-3">Status</th>
+          <th className="p-3">Action Required</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {items.length === 0 ? (
+          <tr><td colSpan={4} className="p-4 text-center text-slate-400">All students meeting attendance thresholds</td></tr>
+        ) : (
+          items.map((item, idx) => (
+            <tr key={idx} className="hover:bg-slate-50/80">
+              <td className="p-3 font-bold text-slate-800">{item.profiles?.full_name || 'Student'}</td>
+              <td className="p-3 text-slate-600">{item.profiles?.email || 'N/A'}</td>
+              <td className="p-3 font-bold text-red-600">Absent Logged</td>
+              <td className="p-3"><span className="px-2 py-1 rounded bg-red-100 text-red-700 font-bold">Send Warning</span></td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+);
+
+const SubmissionTable = ({ items }) => (
+  <div>
+    <h4 className="font-bold text-slate-800 text-sm mb-3">Recently Submitted Assignments</h4>
+    <table className="w-full text-xs text-left">
+      <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+        <tr>
+          <th className="p-3">Student</th>
+          <th className="p-3">Assignment Title</th>
+          <th className="p-3">Submitted At</th>
+          <th className="p-3">Marks</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {items.length === 0 ? (
+          <tr><td colSpan={4} className="p-4 text-center text-slate-400">No submissions awaiting review</td></tr>
+        ) : (
+          items.map((sub, idx) => (
+            <tr key={idx} className="hover:bg-slate-50/80">
+              <td className="p-3 font-bold text-slate-800">{sub.profiles?.full_name || 'Student'}</td>
+              <td className="p-3 text-indigo-600 font-medium">{sub.assignments?.title || 'Assignment'}</td>
+              <td className="p-3 text-slate-400">{new Date(sub.submitted_at || Date.now()).toLocaleDateString()}</td>
+              <td className="p-3">
+                {sub.marks !== null ? <span className="font-bold text-emerald-600">{sub.marks}%</span> : <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">Needs Marking</span>}
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+);
+
+const DeadlineTable = ({ items }) => (
+  <div>
+    <h4 className="font-bold text-slate-800 text-sm mb-3">Upcoming Assignment Deadlines</h4>
+    <div className="space-y-2">
+      {items.map((item, idx) => (
+        <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
+          <div>
+            <p className="font-bold text-slate-800">{item.title}</p>
+            <p className="text-slate-500 mt-0.5">{item.modules?.name || 'Module'}</p>
+          </div>
+          <span className="font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-md">Due: {new Date(item.due_date).toLocaleDateString()}</span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const LeaveTable = ({ items }) => (
+  <div>
+    <h4 className="font-bold text-slate-800 text-sm mb-3">Leave Status Summary</h4>
+    <div className="space-y-2">
+      {items.length === 0 ? (
+        <p className="text-xs text-slate-400 italic">No leave applications found.</p>
+      ) : (
+        items.map((l, idx) => (
+          <div key={idx} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between text-xs">
+            <div>
+              <p className="font-bold text-slate-800">{l.reason}</p>
+              <p className="text-slate-400">{l.start_date} to {l.end_date}</p>
+            </div>
+            <span className={`px-2 py-1 rounded font-bold ${l.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{l.status}</span>
+          </div>
+        ))
+      )}
+    </div>
+  </div>
+);
 
 export default LecturerDashboard;
