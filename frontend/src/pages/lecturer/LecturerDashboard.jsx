@@ -60,42 +60,65 @@ const LecturerDashboard = () => {
 
   const fetchLecturerData = async () => {
     try {
-      // 1. Today's Classes from Timetable
+      // 1. All classes for this lecturer
       const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
       const todayDay = days[new Date().getDay()];
 
-      const { data: scheduleData } = await supabase
+      const { data: allTimetables } = await supabase
         .from('timetables')
         .select('*, lecture_halls(name), batches(name)')
         .eq('lecturer_id', user.id)
-        .or(`day_of_week.eq.${todayDay}`)
         .order('start_time', { ascending: true });
-      if (scheduleData) setTodaySchedule(scheduleData);
 
-      // 2. Fetch Assignments Pending Marking
-      const { data: assignData } = await supabase
+      const scheduleData = allTimetables?.filter(t => t.day_of_week === todayDay) || [];
+      setTodaySchedule(scheduleData);
+
+      const uniqueModules = new Set(allTimetables?.map(t => t.module_name).filter(Boolean));
+      const uniqueBatchIds = [...new Set(allTimetables?.map(t => t.batch_id).filter(Boolean))];
+      const uniqueTimetableIds = [...new Set(allTimetables?.map(t => t.id).filter(Boolean))];
+
+      let totalStudentsCount = 0;
+      if (uniqueBatchIds.length > 0) {
+        const { data: studentsInBatches } = await supabase
+          .from('student_profiles')
+          .select('user_id')
+          .in('batch_id', uniqueBatchIds);
+        totalStudentsCount = studentsInBatches?.length || 0;
+      }
+
+      // 2. Fetch Assignments Pending Marking (Filtered to Lecturer's Modules)
+      const { data: assignDataAll } = await supabase
         .from('assignments')
         .select('*, modules(name)')
         .order('due_date', { ascending: true });
-      if (assignData) {
-        setUpcomingDeadlines(assignData.slice(0, 5));
+        
+      const assignData = assignDataAll?.filter(a => uniqueModules.has(a.modules?.name)) || [];
+      setUpcomingDeadlines(assignData.slice(0, 5));
+
+      // 3. Fetch Submissions (Filtered to Lecturer's Assignments)
+      const myAssignmentIds = new Set(assignData.map(a => a.id));
+      let subData = [];
+      if (myAssignmentIds.size > 0) {
+        const { data: fetchedSubData } = await supabase
+          .from('student_submissions')
+          .select('*, profiles(full_name), assignments(id, title)')
+          .in('assignment_id', [...myAssignmentIds])
+          .order('submitted_at', { ascending: false });
+        subData = fetchedSubData || [];
       }
+      setRecentSubmissions(subData.slice(0, 5));
 
-      // 3. Fetch Submissions
-      const { data: subData } = await supabase
-        .from('student_submissions')
-        .select('*, profiles(full_name), assignments(title)')
-        .order('submitted_at', { ascending: false })
-        .limit(5);
-      if (subData) setRecentSubmissions(subData);
-
-      // 4. Fetch Low Attendance Students (< 75%)
-      const { data: attData } = await supabase
-        .from('attendance')
-        .select('student_id, status, profiles(full_name, email)')
-        .eq('status', 'Absent')
-        .limit(5);
-      if (attData) setLowAttendanceStudents(attData);
+      // 4. Fetch Low Attendance Students (< 75%) (Filtered to Lecturer's Timetables)
+      let attData = [];
+      if (uniqueTimetableIds.length > 0) {
+        const { data: fetchedAttData } = await supabase
+          .from('attendance')
+          .select('student_id, status, profiles(full_name, email)')
+          .in('timetable_id', uniqueTimetableIds)
+          .eq('status', 'Absent');
+        attData = fetchedAttData || [];
+      }
+      setLowAttendanceStudents(attData.slice(0, 5));
 
       // 5. Leave Requests
       const { data: leaveData } = await supabase
@@ -109,19 +132,24 @@ const LecturerDashboard = () => {
         .from('notifications')
         .select('*')
         .eq('user_id', user.id)
-        .limit(5);
-      if (msgData) setRecentMessages(msgData);
+        .order('created_at', { ascending: false });
+      if (msgData) setRecentMessages(msgData.slice(0, 5));
+
+      // Calculate avg attendance roughly for this lecturer's students
+      const avgAttendanceStr = attData.length > 0 && totalStudentsCount > 0 
+        ? `${Math.max(0, 100 - (attData.length / totalStudentsCount) * 100).toFixed(1)}%` 
+        : '85.0%';
 
       // Calculate dynamic stats
       setStats({
-        assignedModules: 4,
-        todaysClasses: scheduleData?.length || 2,
-        totalStudents: 128,
-        avgAttendance: '91.5%',
-        pendingMarking: subData?.filter(s => s.marks === null).length || 8,
-        studentsAttention: attData?.length || 4,
-        unreadMessages: msgData?.filter(m => !m.is_read).length || 2,
-        pendingLeave: leaveData?.filter(l => l.status === 'Pending').length || 1
+        assignedModules: uniqueModules.size || 0,
+        todaysClasses: scheduleData.length,
+        totalStudents: totalStudentsCount,
+        avgAttendance: avgAttendanceStr,
+        pendingMarking: subData?.filter(s => s.marks === null).length || 0,
+        studentsAttention: attData?.length || 0,
+        unreadMessages: msgData?.filter(m => !m.is_read).length || 0,
+        pendingLeave: leaveData?.filter(l => l.status === 'Pending').length || 0
       });
 
     } catch (err) {
