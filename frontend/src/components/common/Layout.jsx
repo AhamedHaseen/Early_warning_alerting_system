@@ -158,7 +158,6 @@ const Layout = ({ role }) => {
           { name: 'Exam Results', icon: Award, path: '/admin/exam-results' },
           { name: 'Risk & Analysis', icon: Activity, path: '/admin/risk-analysis' },
           { name: 'Leave Requests', icon: CalendarDays, path: '/admin/leaves' },
-          { name: 'Analytics', icon: PieChart, path: '/admin/analytics' },
           { name: 'Messages', icon: MessageSquare, path: '/admin/messages' },
           { name: 'Feedback & Complaints', icon: MessageSquare, path: '/admin/feedback' },
           { name: 'Notifications', icon: Bell, path: '/admin/notifications' },

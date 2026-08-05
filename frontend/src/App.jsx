@@ -22,7 +22,6 @@ import AssignmentManagement from './pages/admin/AssignmentManagement';
 import QuizExamManagement from './pages/admin/QuizExamManagement';
 import AdminExamResults from './pages/admin/AdminExamResults';
 import Reports from './pages/admin/Reports';
-import Analytics from './pages/admin/Analytics';
 import Notifications from './pages/admin/Notifications';
 import Settings from './pages/admin/Settings';
 import AdminLeaveManagement from './pages/admin/AdminLeaveManagement';
@@ -80,7 +79,6 @@ function App() {
             <Route path="quizzes" element={<QuizExamManagement />} />
             <Route path="exam-results" element={<AdminExamResults />} />
             <Route path="risk-analysis" element={<RiskAndAnalysis />} />
-            <Route path="analytics" element={<Analytics />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="settings" element={<Settings />} />
             <Route path="leaves" element={<AdminLeaveManagement />} />
