@@ -31,14 +31,14 @@ const AdminChatbot = () => {
       const response = await fetch(`${apiUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           message: text,
-          history: history 
+          history: history
         })
       });
 
       const data = await response.json();
-      
+
       if (data.status === 'success') {
         setMessages(prev => [...prev, { role: 'assistant', content: data.data.reply }]);
       } else {
@@ -114,7 +114,7 @@ const AdminChatbot = () => {
       </button>
 
       {/* Chat Window */}
-      <div 
+      <div
         className={`fixed bottom-6 right-6 w-80 sm:w-96 h-[500px] max-h-[80vh] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden transition-all duration-300 z-50 border border-slate-200 transform origin-bottom-right ${isOpen ? 'scale-100 opacity-100' : 'scale-0 opacity-0 pointer-events-none'}`}
       >
         {/* Header */}
@@ -128,7 +128,7 @@ const AdminChatbot = () => {
               <p className="text-blue-100 text-xs">Langchain Powered</p>
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setIsOpen(false)}
             className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
           >
@@ -139,19 +139,18 @@ const AdminChatbot = () => {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
           {messages.map((msg, idx) => (
-            <div 
-              key={idx} 
+            <div
+              key={idx}
               className={`flex items-start space-x-2 ${msg.role === 'user' ? 'flex-row-reverse space-x-reverse' : ''}`}
             >
               <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-slate-200' : 'bg-blue-100'}`}>
                 {msg.role === 'user' ? <User className="w-4 h-4 text-slate-600" /> : <Bot className="w-4 h-4 text-blue-600" />}
               </div>
-              <div 
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
-                  msg.role === 'user' 
-                    ? 'bg-blue-600 text-white rounded-tr-none' 
+              <div
+                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${msg.role === 'user'
+                    ? 'bg-blue-600 text-white rounded-tr-none'
                     : 'bg-white border border-slate-100 text-slate-700 rounded-tl-none overflow-x-auto'
-                }`}
+                  }`}
                 style={msg.role === 'user' ? { whiteSpace: 'pre-wrap' } : undefined}
               >
                 {msg.role === 'user' ? (
@@ -182,12 +181,18 @@ const AdminChatbot = () => {
         {/* Input Area */}
         <div className="p-4 bg-white border-t border-slate-100">
           <form onSubmit={handleSubmit} className="flex items-center space-x-2">
-            <input
-              type="text"
+            <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask anything..."
-              className="flex-1 bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }
+              }}
+              placeholder="Ask anything... (Shift+Enter for new line)"
+              rows={3}
+              className="flex-1 bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 rounded-xl px-4 py-2.5 text-sm outline-none transition-all resize-y min-h-[44px] max-h-[150px]"
               disabled={isLoading}
             />
             <button
