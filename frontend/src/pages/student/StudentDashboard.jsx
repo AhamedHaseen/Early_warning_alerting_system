@@ -17,6 +17,8 @@ import HeatmapChart from '../../components/charts/HeatmapChart';
 import TimelineActivityChart from '../../components/charts/TimelineActivityChart';
 import DoughnutChart from '../../components/charts/DoughnutChart';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 const StudentDashboard = () => {
   const { user } = useAuth();
 
@@ -48,6 +50,7 @@ const StudentDashboard = () => {
   const [feedbackList, setFeedbackList] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [recsLoading, setRecsLoading] = useState(true);
 
   // Active Tab for Tables
   const [activeTableTab, setActiveTableTab] = useState('timetable');

@@ -49,6 +49,10 @@ import StudentNotifications from './pages/student/StudentNotifications';
 import StudentSettings from './pages/student/StudentSettings';
 import StudentLeaveManagement from './pages/student/StudentLeaveManagement';
 import StudentStudyVideos from './pages/student/StudentStudyVideos';
+import AiTutorChat from './pages/student/AiTutorChat';
+import RagAssistant from './pages/student/RagAssistant';
+import AiQuizGenerator from './pages/student/AiQuizGenerator';
+import NotesSummarizer from './pages/student/NotesSummarizer';
 
 // Common Pages
 import FeedbackSubmission from './pages/common/FeedbackSubmission';
@@ -119,6 +123,10 @@ function App() {
             <Route path="settings" element={<StudentSettings />} />
             <Route path="leave" element={<StudentLeaveManagement />} />
             <Route path="study-videos" element={<StudentStudyVideos />} />
+            <Route path="ai/chatbot" element={<AiTutorChat />} />
+            <Route path="ai/rag" element={<RagAssistant />} />
+            <Route path="ai/quiz" element={<AiQuizGenerator />} />
+            <Route path="ai/summarizer" element={<NotesSummarizer />} />
           </Route>
         </Routes>
       </BrowserRouter>

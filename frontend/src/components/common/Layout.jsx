@@ -22,7 +22,10 @@ import {
   Layers,
   BookMarked,
   Award,
-  PlayCircle
+  PlayCircle,
+  BrainCircuit,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../config/supabase';
@@ -36,6 +39,11 @@ const Layout = ({ role }) => {
 
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [expandedMenus, setExpandedMenus] = useState({});
+
+  const toggleMenu = (name) => {
+    setExpandedMenus(prev => ({ ...prev, [name]: !prev[name] }));
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -191,6 +199,16 @@ const Layout = ({ role }) => {
           { name: 'Feedback & Complaints', icon: AlertTriangle, path: '/student/feedback' },
           { name: 'Leave Management', icon: CalendarDays, path: '/student/leave' },
           { name: 'Study Videos', icon: PlayCircle, path: '/student/study-videos' },
+          { 
+            name: 'AI Tools', 
+            icon: BrainCircuit, 
+            subItems: [
+              { name: 'AI Chatbot', path: '/student/ai/chatbot' },
+              { name: 'RAG Assistant', path: '/student/ai/rag' },
+              { name: 'AI Quiz', path: '/student/ai/quiz' },
+              { name: 'Notes Summarizer', path: '/student/ai/summarizer' }
+            ]
+          },
           { name: 'Notifications', icon: Bell, path: '/student/notifications' },
         ];
       default:
@@ -224,6 +242,50 @@ const Layout = ({ role }) => {
               badge = <span className="ml-auto bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{unreadMessages}</span>;
             } else if (item.name === 'Notifications' && unreadNotifications > 0) {
               badge = <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">{unreadNotifications}</span>;
+            }
+
+            if (item.subItems) {
+              const isExpanded = expandedMenus[item.name];
+              const isChildActive = item.subItems.some(sub => location.pathname === sub.path);
+              return (
+                <div key={item.name} className="space-y-1">
+                  <button
+                    onClick={() => toggleMenu(item.name)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl transition-all ${
+                      isChildActive || isExpanded
+                        ? 'bg-blue-50 text-blue-700 font-medium' 
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <item.icon className={`w-5 h-5 mr-3 ${isChildActive || isExpanded ? 'text-blue-600' : 'text-slate-400'}`} />
+                      {item.name}
+                      {badge}
+                    </div>
+                    {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="pl-10 pr-2 py-1 space-y-1">
+                      {item.subItems.map(sub => {
+                        const isSubActive = location.pathname === sub.path;
+                        return (
+                          <Link
+                            key={sub.name}
+                            to={sub.path}
+                            className={`block px-3 py-2 rounded-lg text-sm transition-all ${
+                              isSubActive 
+                                ? 'bg-blue-100/50 text-blue-700 font-bold' 
+                                : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
+                          >
+                            {sub.name}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
             }
 
             return (
