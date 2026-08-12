@@ -28,6 +28,7 @@ import AdminLeaveManagement from './pages/admin/AdminLeaveManagement';
 import AdminAttendanceManagement from './pages/admin/AdminAttendanceManagement';
 import AdminFeedbackManagement from './pages/admin/AdminFeedbackManagement';
 import AdminMessages from './pages/admin/AdminMessages';
+import StudyVideosManagement from './pages/admin/StudyVideosManagement';
 
 // Lecturer Pages
 import LecturerDashboard from './pages/lecturer/LecturerDashboard';
@@ -47,6 +48,7 @@ import StudentMessages from './pages/student/StudentMessages';
 import StudentNotifications from './pages/student/StudentNotifications';
 import StudentSettings from './pages/student/StudentSettings';
 import StudentLeaveManagement from './pages/student/StudentLeaveManagement';
+import StudentStudyVideos from './pages/student/StudentStudyVideos';
 
 // Common Pages
 import FeedbackSubmission from './pages/common/FeedbackSubmission';
@@ -85,6 +87,7 @@ function App() {
             <Route path="attendance" element={<AdminAttendanceManagement />} />
             <Route path="feedback" element={<AdminFeedbackManagement />} />
             <Route path="messages" element={<AdminMessages />} />
+            <Route path="study-videos" element={<StudyVideosManagement />} />
           </Route>
 
           {/* Lecturer Routes */}
@@ -115,6 +118,7 @@ function App() {
             <Route path="notifications" element={<UserNotifications />} />
             <Route path="settings" element={<StudentSettings />} />
             <Route path="leave" element={<StudentLeaveManagement />} />
+            <Route path="study-videos" element={<StudentStudyVideos />} />
           </Route>
         </Routes>
       </BrowserRouter>

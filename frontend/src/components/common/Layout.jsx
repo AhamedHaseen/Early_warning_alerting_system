@@ -21,7 +21,8 @@ import {
   UserPlus,
   Layers,
   BookMarked,
-  Award
+  Award,
+  PlayCircle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../config/supabase';
@@ -161,6 +162,7 @@ const Layout = ({ role }) => {
           { name: 'Messages', icon: MessageSquare, path: '/admin/messages' },
           { name: 'Feedback & Complaints', icon: MessageSquare, path: '/admin/feedback' },
           { name: 'Notifications', icon: Bell, path: '/admin/notifications' },
+          { name: 'Study Videos', icon: PlayCircle, path: '/admin/study-videos' },
           { name: 'Settings', icon: Settings, path: '/admin/settings' },
         ];
       case 'lecturer':
@@ -188,6 +190,7 @@ const Layout = ({ role }) => {
           { name: 'Messages', icon: MessageSquare, path: '/student/messages' },
           { name: 'Feedback & Complaints', icon: AlertTriangle, path: '/student/feedback' },
           { name: 'Leave Management', icon: CalendarDays, path: '/student/leave' },
+          { name: 'Study Videos', icon: PlayCircle, path: '/student/study-videos' },
           { name: 'Notifications', icon: Bell, path: '/student/notifications' },
         ];
       default:
