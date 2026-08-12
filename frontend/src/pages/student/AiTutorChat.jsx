@@ -11,7 +11,9 @@ const AiTutorChat = () => {
   const [isLoading, setIsLoading] = useState(false);
   const endRef = useRef(null);
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: 'smooth' }), [messages]);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -53,7 +55,7 @@ const AiTutorChat = () => {
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[80%] p-3 rounded-xl text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white rounded-br-none' : 'bg-white border border-slate-200 text-slate-800 rounded-bl-none shadow-sm'}`}>
               <div className="prose prose-sm max-w-none">
-                <ReactMarkdown>{m.content}</ReactMarkdown>
+                <ReactMarkdown>{m.content || ''}</ReactMarkdown>
               </div>
             </div>
           </div>

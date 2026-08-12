@@ -4,6 +4,7 @@ dotenv.config();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEY_1 = process.env.OPENROUTER_API_KEY_1;
 
 export const generateRecommendations = async (stats) => {
   try {
@@ -23,16 +24,15 @@ Each recommendation in the JSON array should have:
 
 Return ONLY the JSON object, nothing else.`;
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${OPENROUTER_API_KEY_1}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
-        response_format: { type: "json_object" }
+        model: "openai/gpt-3.5-turbo",
+        messages: [{ role: "user", content: prompt }]
       })
     });
     const data = await response.json();
@@ -51,14 +51,14 @@ Return ONLY the JSON object, nothing else.`;
 export const chatWithTutor = async (messages) => {
   try {
     // messages is array of { role: 'user' | 'assistant', content: string }
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model: "openai/gpt-3.5-turbo",
         messages: [
           { role: "system", content: "You are a helpful, expert AI Tutor for a university student. Provide clear, concise, and educational answers." },
           ...messages
@@ -66,8 +66,16 @@ export const chatWithTutor = async (messages) => {
       })
     });
     const data = await response.json();
-    if (data.error) throw new Error(data.error.message || "Provider returned error");
-    return data.choices[0].message.content;
+    if (data.error) {
+       const errMsg = typeof data.error === 'string' ? data.error : data.error.message;
+       throw new Error(errMsg || "Provider returned error");
+    }
+    
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      throw new Error("Invalid response from provider");
+    }
+
+    return data.choices[0].message.content || "";
   } catch (err) {
     console.error("Error in Tutor Chat:", err);
     throw new Error("Failed to get response from Tutor: " + err.message);
