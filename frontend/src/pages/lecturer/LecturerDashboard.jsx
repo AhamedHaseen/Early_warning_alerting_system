@@ -9,12 +9,13 @@ import { supabase } from '../../config/supabase';
 
 // Shared Components & Charts
 import DashboardFilters from '../../components/common/DashboardFilters';
-import AttendanceLineChart from '../../components/charts/AttendanceLineChart';
-import PerformanceTrendChart from '../../components/charts/PerformanceTrendChart';
 import StackedBarChart from '../../components/charts/StackedBarChart';
-import DoughnutChart from '../../components/charts/DoughnutChart';
 import ProgressRingChart from '../../components/charts/ProgressRingChart';
 import TimelineActivityChart from '../../components/charts/TimelineActivityChart';
+import PerformanceTrendChart from '../../components/charts/PerformanceTrendChart';
+import LecturerLeaveChart from '../../components/charts/LecturerLeaveChart';
+import LecturerAttendanceChart from '../../components/charts/LecturerAttendanceChart';
+import DepartmentComparisonChart from '../../components/charts/DepartmentComparisonChart';
 
 const LecturerDashboard = () => {
   const { user } = useAuth();
@@ -51,6 +52,13 @@ const LecturerDashboard = () => {
 
   // Active Tab for Tables
   const [activeTableTab, setActiveTableTab] = useState('schedule');
+
+  // Chart Data States
+  const [leaveChartData, setLeaveChartData] = useState([]);
+  const [attendanceChartData, setAttendanceChartData] = useState([]);
+  const [departmentChartData, setDepartmentChartData] = useState([]);
+  const [batchAttChartData, setBatchAttChartData] = useState([]);
+  const [batchSubChartData, setBatchSubChartData] = useState([]);
 
   useEffect(() => {
     if (user?.id) {
@@ -135,22 +143,119 @@ const LecturerDashboard = () => {
         .order('created_at', { ascending: false });
       if (msgData) setRecentMessages(msgData.slice(0, 5));
 
-      // Calculate avg attendance roughly for this lecturer's students
-      const avgAttendanceStr = attData.length > 0 && totalStudentsCount > 0 
-        ? `${Math.max(0, 100 - (attData.length / totalStudentsCount) * 100).toFixed(1)}%` 
-        : '85.0%';
+      // Calculate avg attendance roughly for this lecturer's students (removed)
+      // 7. Lecturer's own attendance
+      const { data: myAtt } = await supabase
+        .from('lecturer_attendance')
+        .select('status')
+        .eq('lecturer_id', user.id);
+      
+      let myAttRate = '100%';
+      if (myAtt && myAtt.length > 0) {
+        const presentCount = myAtt.filter(a => ['present', 'late'].includes(a.status?.toLowerCase())).length;
+        myAttRate = `${Math.round((presentCount / myAtt.length) * 100)}%`;
+      }
 
       // Calculate dynamic stats
       setStats({
         assignedModules: uniqueModules.size || 0,
         todaysClasses: scheduleData.length,
         totalStudents: totalStudentsCount,
-        avgAttendance: avgAttendanceStr,
+        avgAttendance: myAttRate,
         pendingMarking: subData?.filter(s => s.marks === null).length || 0,
         studentsAttention: attData?.length || 0,
         unreadMessages: msgData?.filter(m => !m.is_read).length || 0,
         pendingLeave: leaveData?.filter(l => l.status === 'Pending').length || 0
       });
+
+      // --- POPULATE CHARTS WITH REAL DATA ---
+      
+      // 1. Lecturer Leave Chart Data
+      setLeaveChartData([
+        { name: 'Approved', value: leaveData?.filter(l => l.status?.toLowerCase() === 'approved').length || 0 },
+        { name: 'Pending', value: leaveData?.filter(l => l.status?.toLowerCase() === 'pending').length || 0 },
+        { name: 'Rejected', value: leaveData?.filter(l => l.status?.toLowerCase() === 'rejected').length || 0 }
+      ]);
+
+      // 2. Lecturer Attendance Chart Data
+      setAttendanceChartData([
+        { status: 'Present', count: myAtt?.filter(a => a.status?.toLowerCase() === 'present').length || 0 },
+        { status: 'Absent', count: myAtt?.filter(a => a.status?.toLowerCase() === 'absent').length || 0 },
+        { status: 'Late', count: myAtt?.filter(a => a.status?.toLowerCase() === 'late').length || 0 },
+        { status: 'Excused', count: myAtt?.filter(a => a.status?.toLowerCase() === 'excused').length || 0 }
+      ]);
+
+      // 3. Department Comparison (Lecturer Attendance)
+      const { data: deptData } = await supabase.from('departments').select('id, name');
+      const { data: allLecturers } = await supabase.from('lecturer_profiles').select('user_id, department_id');
+      const { data: allLecturerAtt } = await supabase.from('lecturer_attendance').select('lecturer_id, status');
+      
+      if (deptData && allLecturers && allLecturerAtt) {
+        const dChartData = [];
+        deptData.forEach(dept => {
+          const deptLecturerIds = allLecturers.filter(l => l.department_id === dept.id).map(l => l.user_id);
+          const deptAtt = allLecturerAtt.filter(a => deptLecturerIds.includes(a.lecturer_id));
+          
+          let avgAtt = 0;
+          if (deptAtt.length > 0) {
+            const present = deptAtt.filter(a => ['present', 'late'].includes(a.status?.toLowerCase())).length;
+            avgAtt = Math.round((present / deptAtt.length) * 100);
+          }
+          
+          dChartData.push({ department: dept.name, avgAttendance: avgAtt, isMyDept: deptLecturerIds.includes(user.id) });
+        });
+        setDepartmentChartData(dChartData);
+      }
+
+      // 4. Batch Attendance Comparison Data
+      if (uniqueBatchIds.length > 0) {
+        const { data: batchAttRecords } = await supabase
+          .from('attendance')
+          .select('status, timetables!inner(batch_id)')
+          .in('timetables.batch_id', uniqueBatchIds)
+          .eq('timetables.lecturer_id', user.id);
+          
+        const { data: batchNames } = await supabase.from('batches').select('id, name').in('id', uniqueBatchIds);
+        
+        const bAttData = [];
+        uniqueBatchIds.forEach(bId => {
+          const records = batchAttRecords?.filter(r => r.timetables?.batch_id === bId) || [];
+          const bName = batchNames?.find(b => b.id === bId)?.name || 'Unknown';
+          
+          let attRate = 0;
+          if (records.length > 0) {
+            const present = records.filter(r => ['present', 'late'].includes(r.status?.toLowerCase())).length;
+            attRate = Math.round((present / records.length) * 100);
+          }
+          bAttData.push({ batch: bName, attendance: attRate });
+        });
+        setBatchAttChartData(bAttData);
+      }
+
+      // 5. Assignment Submission Progress by Batch Data
+      if (uniqueBatchIds.length > 0 && myAssignmentIds.size > 0) {
+        const { data: batchNames } = await supabase.from('batches').select('id, name').in('id', uniqueBatchIds);
+        const { data: studentsInBatches } = await supabase.from('student_profiles').select('user_id, batch_id').in('batch_id', uniqueBatchIds);
+        const { data: allSubmissions } = await supabase
+          .from('student_submissions')
+          .select('student_id, marks')
+          .in('assignment_id', [...myAssignmentIds]);
+          
+        const bSubData = [];
+        uniqueBatchIds.forEach(bId => {
+          const bName = batchNames?.find(b => b.id === bId)?.name || 'Unknown';
+          const studentIdsInBatch = studentsInBatches?.filter(s => s.batch_id === bId).map(s => s.user_id) || [];
+          const batchSubs = allSubmissions?.filter(s => studentIdsInBatch.includes(s.student_id)) || [];
+          
+          bSubData.push({ 
+            batch: bName, 
+            submitted: batchSubs.length, 
+            pending: batchSubs.filter(s => s.marks === null).length, 
+            overdue: 0 
+          });
+        });
+        setBatchSubChartData(bSubData);
+      }
 
     } catch (err) {
       console.error('Error fetching lecturer dashboard data:', err);
@@ -170,16 +275,6 @@ const LecturerDashboard = () => {
             Welcome back, <span className="text-indigo-600 font-bold">{user?.full_name || 'Lecturer'}</span> • Classroom & Performance Management
           </p>
         </div>
-
-        {/* Quick Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs transition-all shadow-xs">
-            <ClipboardCheck className="w-3.5 h-3.5" /> Mark Attendance
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-semibold text-xs transition-all shadow-xs">
-            <PlusCircle className="w-3.5 h-3.5" /> New Assignment
-          </button>
-        </div>
       </div>
 
       {/* Filter Bar */}
@@ -189,16 +284,13 @@ const LecturerDashboard = () => {
         onReset={() => setFilters({ academicYear: 'All', semester: 'All', batch: 'All', dateRange: '30days' })}
       />
 
-      {/* 1. 8 Summary Cards Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* 1. 5 Summary Cards Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <StatCard title="Assigned Modules" value={stats.assignedModules} icon={<BookOpen />} color="text-indigo-600" bg="bg-indigo-50" trend="Active" />
         <StatCard title="Today's Classes" value={stats.todaysClasses} icon={<Calendar />} color="text-blue-600" bg="bg-blue-50" trend="Scheduled" />
         <StatCard title="Total Students" value={stats.totalStudents} icon={<Users />} color="text-emerald-600" bg="bg-emerald-50" trend="Enrolled" />
-        <StatCard title="Attendance Rate" value={stats.avgAttendance} icon={<TrendingUp />} color="text-teal-600" bg="bg-teal-50" trend="+0.8%" />
-        <StatCard title="Pending Marking" value={stats.pendingMarking} icon={<FileText />} color="text-amber-600" bg="bg-amber-50" trend="Requires Grading" isUrgent />
-        <StatCard title="Needs Attention" value={stats.studentsAttention} icon={<AlertTriangle />} color="text-red-600" bg="bg-red-50" trend="Low Attendance" isUrgent />
+        <StatCard title="My Attendance" value={stats.avgAttendance} icon={<TrendingUp />} color="text-teal-600" bg="bg-teal-50" trend="Current Rate" />
         <StatCard title="Unread Messages" value={stats.unreadNotifications} icon={<Mail />} color="text-purple-600" bg="bg-purple-50" trend="Inbox" />
-        <StatCard title="Pending Leave" value={stats.pendingLeave} icon={<Clock />} color="text-slate-600" bg="bg-slate-100" trend="In Review" />
       </div>
 
       {/* 2. Analytics Visualizations Grid (8 Charts) */}
@@ -207,37 +299,28 @@ const LecturerDashboard = () => {
           <Award className="w-5 h-5 text-indigo-600" /> Teaching Analytics & Performance Progress
         </h2>
 
-        {/* Row 1: Module Attendance & Batch Comparison */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Teaching Module Attendance Trend" icon={<TrendingUp className="text-blue-500" />}>
-            <AttendanceLineChart />
+        {/* Row 1: Lecturer Specific Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <ChartCard title="My Leave Requests" icon={<Clock className="text-amber-500" />}>
+            <LecturerLeaveChart data={leaveChartData} />
           </ChartCard>
-          <ChartCard title="Batch Attendance Comparison" icon={<Users className="text-emerald-500" />}>
-            <PerformanceTrendChart />
+          <ChartCard title="My Attendance History" icon={<TrendingUp className="text-emerald-500" />}>
+            <LecturerAttendanceChart data={attendanceChartData} />
+          </ChartCard>
+          <ChartCard title="Department Attendance Comparison" icon={<Award className="text-indigo-500" />}>
+            <DepartmentComparisonChart data={departmentChartData} />
           </ChartCard>
         </div>
 
-        {/* Row 2: Submission Progress Ring & Academic Distribution */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Row 2: Batch Attendance Comparison & Course Completion */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ChartCard title="Batch Attendance Comparison" icon={<Users className="text-emerald-500" />}>
+            <PerformanceTrendChart data={batchAttChartData} />
+          </ChartCard>
           <ChartCard title="Course Completion Progress" icon={<CheckCircle2 className="text-emerald-500" />}>
             <div className="h-full flex items-center justify-center py-6">
               <ProgressRingChart percentage={82} label="Curriculum Covered" color="#10b981" size={140} />
             </div>
-          </ChartCard>
-          <div className="lg:col-span-2">
-            <ChartCard title="Assignment Submission Progress by Batch" icon={<FileText className="text-amber-500" />}>
-              <StackedBarChart />
-            </ChartCard>
-          </div>
-        </div>
-
-        {/* Row 3: Result Analysis & Schedule Timeline */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Academic Performance Distribution" icon={<Award className="text-indigo-500" />}>
-            <DoughnutChart />
-          </ChartCard>
-          <ChartCard title="Weekly Teaching Schedule Timeline" icon={<Clock className="text-purple-500" />}>
-            <TimelineActivityChart />
           </ChartCard>
         </div>
       </div>
@@ -286,8 +369,8 @@ const LecturerDashboard = () => {
         </div>
       </div>
 
-      {/* 4. Widgets: Personal Timetable, AI Assistant & Notification Centre */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4">
+      {/* 4. Widgets: Personal Timetable */}
+      <div className="grid grid-cols-1 gap-6 pt-4">
         
         {/* Personal Timetable Widget */}
         <div className="glass-card p-5 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
@@ -310,45 +393,6 @@ const LecturerDashboard = () => {
                 ))
               )}
             </div>
-          </div>
-        </div>
-
-        {/* AI Timetable & Assistant Widget */}
-        <div className="glass-card p-5 rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50/50 to-purple-50/30 shadow-sm flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-purple-600" /> AI Class Assistant
-              </h3>
-              <span className="text-[10px] bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-bold">Active</span>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed mb-3">
-              "You have 2 pending submissions in Database Systems requiring grade reviews before tomorrow morning."
-            </p>
-          </div>
-          <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-all">
-            Generate Teaching Summary
-          </button>
-        </div>
-
-        {/* Lecturer Quick Actions */}
-        <div className="glass-card p-5 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
-            <Send className="w-4 h-4 text-emerald-600" /> Lecturer Quick Actions
-          </h3>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
-              <ClipboardCheck className="w-4 h-4 text-indigo-600" /> Take Attendance
-            </button>
-            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
-              <FileText className="w-4 h-4 text-emerald-600" /> Post Quiz
-            </button>
-            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
-              <Bell className="w-4 h-4 text-amber-600" /> Announcement
-            </button>
-            <button className="p-3 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-100 text-slate-700 font-semibold flex flex-col items-center gap-1 transition-all">
-              <MessageSquare className="w-4 h-4 text-purple-600" /> Message Class
-            </button>
           </div>
         </div>
 

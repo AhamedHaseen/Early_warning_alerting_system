@@ -6,14 +6,9 @@ const CustomTooltip = ({ active, payload, label }) => {
     return (
       <div className="bg-white/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-slate-100 min-w-[140px] text-xs">
         <p className="font-semibold text-slate-800 mb-1">{label}</p>
-        <p className="text-indigo-600 font-medium flex justify-between gap-4">
-          <span>Avg Score:</span> <span>{payload[0].value}%</span>
+        <p className="text-emerald-600 font-medium flex justify-between gap-4">
+          <span>Attendance:</span> <span>{payload[0].value}%</span>
         </p>
-        {payload[1] && (
-          <p className="text-emerald-600 font-medium flex justify-between gap-4">
-            <span>Pass Rate:</span> <span>{payload[1].value}%</span>
-          </p>
-        )}
       </div>
     );
   }
@@ -22,10 +17,10 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 const PerformanceTrendChart = ({ data }) => {
   const defaultData = [
-    { batch: 'Batch 2021', avgScore: 78, passRate: 85 },
-    { batch: 'Batch 2022', avgScore: 82, passRate: 90 },
-    { batch: 'Batch 2023', avgScore: 75, passRate: 82 },
-    { batch: 'Batch 2024', avgScore: 88, passRate: 95 },
+    { batch: 'Batch 2021', attendance: 85 },
+    { batch: 'Batch 2022', attendance: 90 },
+    { batch: 'Batch 2023', attendance: 82 },
+    { batch: 'Batch 2024', attendance: 95 },
   ];
 
   const chartData = data !== undefined ? data : defaultData;
@@ -39,8 +34,7 @@ const PerformanceTrendChart = ({ data }) => {
           <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
           <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: '12px', color: '#64748b' }} />
-          <Bar dataKey="avgScore" name="Avg Score" fill="#6366f1" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="passRate" name="Pass Rate" fill="#10b981" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="attendance" name="Attendance Rate" fill="#10b981" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </div>
