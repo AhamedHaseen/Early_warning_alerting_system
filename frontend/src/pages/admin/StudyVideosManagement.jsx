@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, PlayCircle, ExternalLink } from 'lucide-react';
+import { Plus, Edit, Trash2, PlayCircle, ExternalLink, Upload, Link } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { supabase } from '../../config/supabase';
 
@@ -12,6 +12,11 @@ const StudyVideosManagement = () => {
   // Form State
   const [formData, setFormData] = useState({ title: '', description: '', video_url: '', course_id: '' });
   const [editingId, setEditingId] = useState(null);
+  
+  // Upload State
+  const [uploadMethod, setUploadMethod] = useState('link'); // 'link' or 'upload'
+  const [videoFile, setVideoFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -51,18 +56,46 @@ const StudyVideosManagement = () => {
         course_id: video.course_id || '' 
       });
       setEditingId(video.id);
+      setUploadMethod('link');
     } else {
       setFormData({ title: '', description: '', video_url: '', course_id: '' });
       setEditingId(null);
+      setUploadMethod('link');
     }
+    setVideoFile(null);
     setIsModalOpen(true);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      setUploading(true);
+      let finalVideoUrl = formData.video_url;
+
+      if (uploadMethod === 'upload' && videoFile) {
+        const fileExt = videoFile.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+        const filePath = `${fileName}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from('videos')
+          .upload(filePath, videoFile);
+
+        if (uploadError) throw uploadError;
+
+        const { data: { publicUrl } } = supabase.storage
+          .from('videos')
+          .getPublicUrl(filePath);
+
+        finalVideoUrl = publicUrl;
+      } else if (uploadMethod === 'link' && !formData.video_url) {
+          throw new Error("Please provide a video URL.");
+      } else if (uploadMethod === 'upload' && !videoFile && !editingId) {
+          throw new Error("Please select a video file to upload.");
+      }
+
       // Prepare payload and handle empty course_id
-      const payload = { ...formData };
+      const payload = { ...formData, video_url: finalVideoUrl };
       if (payload.course_id === '') {
         payload.course_id = null;
       }
@@ -80,6 +113,8 @@ const StudyVideosManagement = () => {
       fetchData();
     } catch (err) {
       Swal.fire('Error', err.message, 'error');
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -108,6 +143,7 @@ const StudyVideosManagement = () => {
 
   // Helper to extract YouTube video ID for thumbnail
   const getYouTubeId = (url) => {
+    if (!url) return null;
     const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
     const match = url.match(regExp);
     return (match && match[2].length === 11) ? match[2] : null;
@@ -139,6 +175,7 @@ const StudyVideosManagement = () => {
               </div>
             ) : videos.map((video) => {
               const ytId = getYouTubeId(video.video_url);
+              // Use default thumbnail if it's not a youtube video (e.g., uploaded video)
               const thumbnailUrl = ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?q=80&w=800&auto=format&fit=crop';
               
               return (
@@ -182,7 +219,7 @@ const StudyVideosManagement = () => {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold text-slate-800 mb-4">{editingId ? 'Edit Video' : 'Add Study Video'}</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -199,8 +236,36 @@ const StudyVideosManagement = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Video URL (YouTube, Vimeo, etc.)</label>
-                <input required type="url" name="video_url" value={formData.video_url} onChange={handleInputChange} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="https://youtube.com/watch?v=..." />
+                <label className="block text-sm font-medium mb-2">Video Source</label>
+                <div className="flex bg-slate-100 p-1 rounded-lg mb-3">
+                  <button
+                    type="button"
+                    onClick={() => setUploadMethod('link')}
+                    className={`flex-1 flex items-center justify-center py-2 text-sm font-medium rounded-md transition-colors ${uploadMethod === 'link' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    <Link className="w-4 h-4 mr-2" /> Provide Link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUploadMethod('upload')}
+                    className={`flex-1 flex items-center justify-center py-2 text-sm font-medium rounded-md transition-colors ${uploadMethod === 'upload' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                  >
+                    <Upload className="w-4 h-4 mr-2" /> Upload Video
+                  </button>
+                </div>
+
+                {uploadMethod === 'link' ? (
+                  <div>
+                    <input type="url" name="video_url" value={formData.video_url} onChange={handleInputChange} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all" placeholder="https://youtube.com/watch?v=..." required={uploadMethod === 'link'} />
+                  </div>
+                ) : (
+                  <div>
+                    <input type="file" accept="video/*" onChange={(e) => setVideoFile(e.target.files[0])} className="w-full px-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" required={!editingId && uploadMethod === 'upload'} />
+                    {editingId && formData.video_url && (
+                      <p className="text-xs text-slate-500 mt-2">Current video: <a href={formData.video_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">View Video</a>. Select a new file to replace it.</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div>
@@ -209,8 +274,17 @@ const StudyVideosManagement = () => {
               </div>
 
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium transition-colors">Cancel</button>
-                <button type="submit" className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm">Save Video</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={uploading} className="px-4 py-2 text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200 font-medium transition-colors disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={uploading} className="px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 font-medium transition-colors shadow-sm flex items-center">
+                  {uploading ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Saving...
+                    </>
+                  ) : (
+                    'Save Video'
+                  )}
+                </button>
               </div>
             </form>
           </div>
