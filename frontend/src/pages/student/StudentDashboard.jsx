@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  GraduationCap, CalendarDays, BookOpen, FileText, TrendingUp, Activity, 
-  Bell, Clock, CheckCircle, AlertCircle, Award, Lightbulb, Sparkles, CheckCircle2, 
+import {
+  GraduationCap, CalendarDays, BookOpen, FileText, TrendingUp, Activity,
+  Bell, Clock, CheckCircle, AlertCircle, Award, Lightbulb, Sparkles, CheckCircle2,
   ArrowUpRight, Target, MessageSquare, AlertTriangle, Calendar
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -10,17 +10,32 @@ import { supabase } from '../../config/supabase';
 // Shared Components & Charts
 import DashboardFilters from '../../components/common/DashboardFilters';
 import AttendanceLineChart from '../../components/charts/AttendanceLineChart';
-import PerformanceTrendChart from '../../components/charts/PerformanceTrendChart';
 import ProgressRingChart from '../../components/charts/ProgressRingChart';
-import AreaProgressionChart from '../../components/charts/AreaProgressionChart';
-import HeatmapChart from '../../components/charts/HeatmapChart';
 import TimelineActivityChart from '../../components/charts/TimelineActivityChart';
 import DoughnutChart from '../../components/charts/DoughnutChart';
+import WebsiteVisitsChart from '../../components/charts/WebsiteVisitsChart';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+const MOTIVATIONAL_QUOTES = [
+  { text: "The secret of getting ahead is getting started.", author: "Mark Twain" },
+  { text: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+  { text: "Don't let what you cannot do interfere with what you can do.", author: "John Wooden" },
+  { text: "Success is the sum of small efforts, repeated day in and day out.", author: "Robert Collier" },
+  { text: "The future belongs to those who believe in the beauty of their dreams.", author: "Eleanor Roosevelt" },
+  { text: "Strive for progress, not perfection.", author: "Unknown" },
+  { text: "There are no shortcuts to any place worth going.", author: "Beverly Sills" },
+  { text: "Believe you can and you're halfway there.", author: "Theodore Roosevelt" },
+  { text: "Your education is a dress rehearsal for a life that is yours to lead.", author: "Nora Ephron" },
+  { text: "Education is the most powerful weapon which you can use to change the world.", author: "Nelson Mandela" }
+];
+
 const StudentDashboard = () => {
   const { user } = useAuth();
+
+  const today = new Date();
+  const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+  const dailyQuote = MOTIVATIONAL_QUOTES[dayOfYear % MOTIVATIONAL_QUOTES.length];
 
   // Filters State
   const [filters, setFilters] = useState({
@@ -33,9 +48,8 @@ const StudentDashboard = () => {
   // KPI Summary Stats
   const [stats, setStats] = useState({
     attendancePct: '92.0%',
-    completedAssignments: 14,
+    completedAssignments: 0,
     pendingAssignments: 3,
-    gpa: '3.62',
     unreadNotifs: 2,
     upcomingClasses: 4,
     upcomingExams: 2,
@@ -49,17 +63,14 @@ const StudentDashboard = () => {
   const [recentResults, setRecentResults] = useState([]);
   const [feedbackList, setFeedbackList] = useState([]);
   const [notifications, setNotifications] = useState([]);
-  const [recommendations, setRecommendations] = useState([]);
-  const [recsLoading, setRecsLoading] = useState(true);
 
   // Data for Charts
   const [chartData, setChartData] = useState({
     attendance: undefined,
-    performance: undefined,
     completionRate: 85,
-    gpaTrend: undefined,
     activity: undefined,
-    heatmap: undefined
+    websiteVisits: undefined,
+    leaveData: undefined
   });
 
   // Active Tab for Tables
@@ -73,6 +84,16 @@ const StudentDashboard = () => {
 
   const fetchStudentDashboardData = async () => {
     try {
+      // 0. Fetch Student Profile for Batch & Department
+      const { data: profileData } = await supabase
+        .from('student_profiles')
+        .select('batch_id, courses(department_id)')
+        .eq('user_id', user.id)
+        .single();
+
+      const batchId = profileData?.batch_id;
+      const deptId = profileData?.courses?.department_id;
+
       // 1. Attendance Records
       const { data: attData } = await supabase
         .from('attendance')
@@ -102,26 +123,40 @@ const StudentDashboard = () => {
       }
 
       // 3. Timetable Schedule
-      const { data: timeData } = await supabase
+      let timeQuery = supabase
         .from('timetables')
         .select('*, lecture_halls(name)')
         .limit(5);
+      if (batchId) {
+        timeQuery = timeQuery.eq('batch_id', batchId);
+      }
+      const { data: timeData } = await timeQuery;
       if (timeData) setTimetable(timeData);
 
       // 4. Assignments & Deadlines
-      const { data: assignData } = await supabase
+      const { data: assignDataAll } = await supabase
         .from('assignments')
-        .select('*, modules(name)')
-        .order('due_date', { ascending: true })
-        .limit(5);
+        .select('*, modules(name, courses(department_id))')
+        .order('due_date', { ascending: true });
+
+      let assignData = assignDataAll || [];
+      if (deptId) {
+        assignData = assignData.filter(a => a.modules?.courses?.department_id === deptId);
+      }
+      assignData = assignData.slice(0, 5);
       if (assignData) setDeadlines(assignData);
 
       // 5. Assessments / Exams
-      const { data: assessData } = await supabase
+      const { data: assessDataAll } = await supabase
         .from('assessments')
-        .select('*, modules(name)')
-        .order('date', { ascending: true })
-        .limit(5);
+        .select('*, modules(name, courses(department_id))')
+        .order('date', { ascending: true });
+
+      let assessData = assessDataAll || [];
+      if (deptId) {
+        assessData = assessData.filter(a => a.modules?.courses?.department_id === deptId);
+      }
+      assessData = assessData.slice(0, 5);
       if (assessData) setExamSchedule(assessData);
 
       // 6. Notifications
@@ -133,104 +168,52 @@ const StudentDashboard = () => {
         .limit(5);
       if (notifData) setNotifications(notifData);
 
-      // 7. Fetch Personalized AI Recommendations
-      let aiRecs = [];
-      try {
-        const aiStats = {
-          attendancePct: `${attPct}%`,
-          gpa: calcGpa,
-          pendingAssignments: assignData?.length || 0,
-          completedAssignments: 14 // mock total completed
-        };
-        const aiRes = await fetch(`${API_URL}/api/ai/recommendations`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stats: aiStats })
-        });
-        const aiData = await aiRes.json();
-        if (aiData.status === 'success' && Array.isArray(aiData.recommendations)) {
-          aiRecs = aiData.recommendations;
-        } else {
-          throw new Error('AI failed, fallback to rules');
-        }
-      } catch (err) {
-        console.error('Failed to get AI recs, using rule-based fallback:', err);
-        const ruleEngineRecs = [];
-        if (attPct < 80) {
-          ruleEngineRecs.push({
-            id: 1, type: 'urgent', title: 'Improve Attendance in Key Modules',
-            message: `Your current attendance is ${attPct}%. Maintain above 80% to avoid academic warning penalties.`,
-            action: 'View Attendance Log'
-          });
-        }
-        if (assignData && assignData.length > 0) {
-          ruleEngineRecs.push({
-            id: 2, type: 'warning', title: 'Pending Assignment Due Soon',
-            message: `You have ${assignData.length} pending assignments. Submit before the upcoming deadline.`,
-            action: 'Go to Submissions'
-          });
-        }
-        ruleEngineRecs.push({
-          id: 3, type: 'info', title: 'Lecturer Consultation Session Available',
-          message: 'Book a 1-on-1 consultation slot to review your coursework feedback.',
-          action: 'Book Slot'
-        });
-        ruleEngineRecs.push({
-          id: 4, type: 'success', title: 'Prepare for Upcoming Examinations',
-          message: `You have ${assessData?.length || 2} scheduled assessments this semester.`,
-          action: 'Revision Hub'
-        });
-        aiRecs = ruleEngineRecs;
-      }
-      setRecommendations(aiRecs);
+      // 8. Completed Assignments Count
+      const { count: completedCount } = await supabase
+        .from('student_submissions')
+        .select('*', { count: 'exact', head: true })
+        .eq('student_id', user.id);
 
-      // ---- Build Chart Data from Real Database Records ----
-      
-      // 1. Attendance Chart & Heatmap
-      let attChartData = undefined;
-      let heatmapData = undefined;
+      // 9. Leave Management Requests
+      const { data: leaveData } = await supabase
+        .from('leave_requests')
+        .select('*')
+        .eq('user_id', user.id);
+
+      // ---- Build Chart Data ----
+
+      // 1. Monthly Attendance
+      let attChartData = [];
       if (attData && attData.length > 0) {
-        const chunkSize = Math.max(1, Math.floor(attData.length / 6));
-        attChartData = Array.from({ length: 6 }).map((_, i) => {
-          const chunk = attData.slice(i * chunkSize, (i + 1) * chunkSize);
-          const p = chunk.length ? (chunk.filter(c => c.status === 'Present' || c.status === 'Late').length / chunk.length) * 100 : attPct;
-          return { week: `Period ${i + 1}`, attendance: Math.round(p) };
+        const monthlyAtt = {};
+        attData.forEach(r => {
+          const m = new Date(r.date || r.created_at).toLocaleString('default', { month: 'short', year: '2-digit' });
+          if (!monthlyAtt[m]) monthlyAtt[m] = { total: 0, present: 0 };
+          monthlyAtt[m].total++;
+          if (r.status?.toLowerCase() === 'present' || r.status?.toLowerCase() === 'late') monthlyAtt[m].present++;
         });
-
-        // Heatmap: populate based on overall attPct but vary slightly
-        heatmapData = Array.from({ length: 5 }).map(() => 
-          Array.from({ length: 4 }).map(() => Math.min(100, Math.max(0, attPct + (Math.floor(Math.random() * 20) - 10))))
-        );
-      }
-
-      // 2. Performance Trend (Module averages)
-      let perfChartData = undefined;
-      if (examData && examData.length > 0) {
-        const moduleMap = {};
-        examData.forEach(ex => {
-          const m = ex.modules?.name || 'Unknown';
-          if (!moduleMap[m]) moduleMap[m] = { total: 0, count: 0, passes: 0 };
-          moduleMap[m].total += Number(ex.marks || 0);
-          moduleMap[m].count += 1;
-          if (Number(ex.marks || 0) >= 50) moduleMap[m].passes += 1;
-        });
-        perfChartData = Object.keys(moduleMap).slice(0, 5).map(m => ({
-          batch: m.length > 12 ? m.substring(0, 12) + '..' : m,
-          avgScore: Math.round(moduleMap[m].total / moduleMap[m].count),
-          passRate: Math.round((moduleMap[m].passes / moduleMap[m].count) * 100)
+        attChartData = Object.keys(monthlyAtt).map(m => ({
+          week: m, // Property name kept 'week' for compatibility with AttendanceLineChart
+          attendance: Math.round((monthlyAtt[m].present / monthlyAtt[m].total) * 100)
         }));
       }
 
-      // 3. GPA Progression
-      let gpaChartData = undefined;
-      if (examData && examData.length > 0) {
-        const sortedExams = [...examData].reverse();
-        let runningTotal = 0;
-        gpaChartData = sortedExams.map((ex, i) => {
-          runningTotal += Number(ex.marks || 0);
-          const avg = runningTotal / (i + 1);
-          return { semester: `Assess ${i+1}`, gpa: Number(((avg / 100) * 4.0).toFixed(2)) };
+      // 3. Leave Management Chart
+      let leaveChartData = [];
+      if (leaveData) {
+        const leaveCounts = { Approved: 0, Pending: 0, Rejected: 0 };
+        leaveData.forEach(l => {
+          if (l.status?.toLowerCase() === 'approved') leaveCounts.Approved++;
+          else if (l.status?.toLowerCase() === 'rejected') leaveCounts.Rejected++;
+          else leaveCounts.Pending++;
         });
+        if (leaveCounts.Approved || leaveCounts.Pending || leaveCounts.Rejected) {
+          leaveChartData = [
+            { name: 'Approved', value: leaveCounts.Approved, color: '#10b981' },
+            { name: 'Pending', value: leaveCounts.Pending, color: '#f59e0b' },
+            { name: 'Rejected', value: leaveCounts.Rejected, color: '#ef4444' }
+          ];
+        }
       }
 
       // 4. Timeline Activity (Notifications)
@@ -247,18 +230,14 @@ const StudentDashboard = () => {
 
       setChartData({
         attendance: attChartData,
-        performance: perfChartData,
-        completionRate: assignData?.length ? Math.round((14 / (14 + assignData.length)) * 100) : 85,
-        gpaTrend: gpaChartData,
         activity: timelineData,
-        heatmap: heatmapData
+        leaveData: leaveChartData
       });
 
       setStats({
         attendancePct: `${attPct}%`,
-        completedAssignments: 14,
+        completedAssignments: completedCount || 0,
         pendingAssignments: assignData?.length || 3,
-        gpa: calcGpa,
         unreadNotifs: notifData?.filter(n => !n.is_read).length || 2,
         upcomingClasses: timeData?.length || 4,
         upcomingExams: assessData?.length || 2,
@@ -272,7 +251,7 @@ const StudentDashboard = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
-      
+
       {/* Header Banner */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -292,84 +271,46 @@ const StudentDashboard = () => {
         onReset={() => setFilters({ academicYear: 'All', semester: 'All', batch: 'All', dateRange: '30days' })}
       />
 
-      {/* 1. 8 Summary Statistic Cards Grid */}
+      {/* 1. Summary Statistic Cards Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard title="Attendance Rate" value={stats.attendancePct} icon={<TrendingUp />} color="text-blue-600" bg="bg-blue-50" trend="Active" />
-        <StatCard title="Current GPA" value={stats.gpa} icon={<Award />} color="text-emerald-600" bg="bg-emerald-50" trend="4.0 Scale" />
-        <StatCard title="Completed Assignments" value={stats.completedAssignments} icon={<CheckCircle2 />} color="text-indigo-600" bg="bg-indigo-50" trend="Done" />
         <StatCard title="Pending Assignments" value={stats.pendingAssignments} icon={<FileText />} color="text-amber-600" bg="bg-amber-50" trend="Due Soon" isUrgent />
         <StatCard title="Upcoming Classes" value={stats.upcomingClasses} icon={<CalendarDays />} color="text-teal-600" bg="bg-teal-50" trend="This Week" />
-        <StatCard title="Upcoming Exams" value={stats.upcomingExams} icon={<Clock />} color="text-purple-600" bg="bg-purple-50" trend="Scheduled" />
         <StatCard title="Unread Notifs" value={stats.unreadNotifs} icon={<Bell />} color="text-pink-600" bg="bg-pink-50" trend="Inbox" />
         <StatCard title="Academic Status" value={stats.recommendationStatus} icon={<Target />} color="text-emerald-700" bg="bg-emerald-100/50" trend="Verified" />
       </div>
 
-      {/* 2. Personalized Rule-Based Recommendation Engine Banner */}
-      <div className="glass-card p-6 rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50/80 via-white to-purple-50/50 shadow-sm">
+      {/* 2. Daily Motivational Quote Banner */}
+      <div className="glass-card p-6 rounded-2xl border border-amber-100 bg-gradient-to-r from-amber-50/80 via-white to-orange-50/50 shadow-sm">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-600" /> AI Early Warning Recommendations
+            <Sparkles className="w-5 h-5 text-amber-600" /> Quote of the Day
           </h2>
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">Rule-Based Engine Active</span>
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">Daily Motivation</span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {recommendations.map(rec => (
-            <div key={rec.id} className="p-4 rounded-xl bg-white border border-slate-100 shadow-2xs flex flex-col justify-between hover:shadow-md transition-shadow">
-              <div>
-                <div className="flex items-center gap-1.5 mb-2">
-                  {rec.type === 'urgent' && <AlertTriangle className="w-4 h-4 text-red-500" />}
-                  {rec.type === 'warning' && <Clock className="w-4 h-4 text-amber-500" />}
-                  {rec.type === 'info' && <Lightbulb className="w-4 h-4 text-blue-500" />}
-                  {rec.type === 'success' && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                  <h4 className="font-bold text-slate-800 text-xs truncate">{rec.title}</h4>
-                </div>
-                <p className="text-xs text-slate-500 leading-relaxed">{rec.message}</p>
-              </div>
-              <button className="mt-3 text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
-                {rec.action} <ArrowUpRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+        <div className="p-6 rounded-xl bg-white border border-slate-100 shadow-2xs flex flex-col items-center justify-center text-center">
+          <p className="text-lg md:text-xl font-medium text-slate-700 italic mb-3">"{dailyQuote.text}"</p>
+          <p className="text-sm font-bold text-slate-500">— {dailyQuote.author}</p>
         </div>
       </div>
 
-      {/* 3. Analytics Visualizations Grid (8 Charts) */}
+      {/* 3. Analytics Visualizations Grid */}
       <div className="space-y-6">
         <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
           <Activity className="w-5 h-5 text-indigo-600" /> Personal Academic Analytics
         </h2>
 
-        {/* Row 1: Attendance Trend & Subject Performance */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Personal Attendance Trend Line" icon={<TrendingUp className="text-blue-500" />}>
+          <ChartCard title="Monthly Attendance Trend" icon={<TrendingUp className="text-blue-500" />}>
             <AttendanceLineChart data={chartData.attendance} />
           </ChartCard>
-          <ChartCard title="Subject-Wise Performance Distribution" icon={<BookOpen className="text-emerald-500" />}>
-            <PerformanceTrendChart data={chartData.performance} />
+          <ChartCard title="Leave Management Overview" icon={<CalendarDays className="text-amber-500" />}>
+            <DoughnutChart data={chartData.leaveData} />
           </ChartCard>
         </div>
 
-        {/* Row 2: Completion Progress Ring & Semester Area Progression */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <ChartCard title="Assignment Completion Progress" icon={<CheckCircle2 className="text-emerald-500" />}>
-            <div className="h-full flex items-center justify-center py-6">
-              <ProgressRingChart percentage={chartData.completionRate} label="Assignments Completed" color="#6366f1" size={140} />
-            </div>
-          </ChartCard>
-          <div className="lg:col-span-2">
-            <ChartCard title="Semester Performance GPA Progression" icon={<TrendingUp className="text-indigo-500" />}>
-              <AreaProgressionChart data={chartData.gpaTrend} />
-            </ChartCard>
-          </div>
-        </div>
-
-        {/* Row 3: Study Activity Heatmap & Academic Timeline */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChartCard title="Weekly Study & Class Activity Calendar" icon={<Calendar className="text-teal-500" />}>
-            <HeatmapChart data={chartData.heatmap} />
-          </ChartCard>
-          <ChartCard title="Academic Progress & Events Timeline" icon={<Clock className="text-purple-500" />}>
+        <div className="grid grid-cols-1 gap-6">
+          <ChartCard title="Academic Progress Timeline" icon={<Clock className="text-purple-500" />}>
             <TimelineActivityChart activities={chartData.activity} />
           </ChartCard>
         </div>
