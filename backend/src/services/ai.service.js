@@ -24,15 +24,16 @@ Each recommendation in the JSON array should have:
 
 Return ONLY the JSON object, nothing else.`;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY_1}`,
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }]
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        response_format: { type: "json_object" }
       })
     });
     const data = await response.json();
@@ -51,14 +52,14 @@ Return ONLY the JSON object, nothing else.`;
 export const chatWithTutor = async (messages) => {
   try {
     // messages is array of { role: 'user' | 'assistant', content: string }
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-3.5-turbo",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: "You are a helpful, expert AI Tutor for a university student. Provide clear, concise, and educational answers." },
           ...messages
@@ -86,7 +87,7 @@ export const summarizeNotes = async (notes) => {
   try {
     const prompt = `Summarize the following study notes in a structured, easy-to-read markdown format. Include main concepts, key takeaways, and a quick summary.\n\nNotes:\n${notes}`;
     
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
